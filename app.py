@@ -10,14 +10,21 @@ import streamlit as st
 
 from src.config import AppConfig, load_config
 from src.document_parser import DocumentValidationError
-from src.embedder import ArcticEmbedder, detect_preferred_device
+from src.bm25_retriever import BM25SearchEngine
+from src.embedder import (
+    EmbeddingModelUnavailableError,
+    SentenceTransformerEmbedder,
+    detect_preferred_device,
+)
+from src.model_ids import ModelValidationError
+from src.model_selection import invalidate_dense_indexes_for_model, resolve_model_choice
 from src.reranker import (
     DEFAULT_RERANKER_MODEL,
     CrossEncoderReranker,
     RerankerUnavailableError,
 )
 from src.search_engine import DenseSearchEngine
-from src.services import CorpusService, SearchService
+from src.services import CorpusService, SearchService, build_dense_engines
 from src.ui_components import render_about_method, render_results
 from src.vector_index import available_backend_name
 
@@ -26,7 +33,7 @@ LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 PIPELINES = {
-    "Dense": "Semantic retrieval over normalized Arctic-S embeddings.",
+    "Dense": "Semantic retrieval over normalized SentenceTransformer embeddings.",
     "BM25": "Lexical retrieval using raw Okapi BM25 scores.",
     "Hybrid": "Dense and BM25 rankings combined with Reciprocal Rank Fusion.",
 }
@@ -34,10 +41,10 @@ RERANKERS = ("Off", "Cross-Encoder")
 
 
 @st.cache_resource(show_spinner=False)
-def get_embedder(model_id: str, dimension: int) -> ArcticEmbedder:
-    """Load Arctic-S once per Streamlit server process."""
+def get_embedder(model_id: str) -> SentenceTransformerEmbedder:
+    """Load one safe SentenceTransformer resource per model ID."""
 
-    return ArcticEmbedder(model_id, dimension)
+    return SentenceTransformerEmbedder(model_id)
 
 
 @st.cache_resource(show_spinner=False)
@@ -47,10 +54,102 @@ def get_cross_encoder_reranker(model_id: str, device: str) -> CrossEncoderRerank
     return CrossEncoderReranker(model_id, device=device)
 
 
-def _sidebar(config: AppConfig, preferred_device: str) -> None:
+def _resolve_model_choices(
+    config: AppConfig,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Resolve current controls without loading either model."""
+
+    embedding_error: str | None = None
+    reranker_error: str | None = None
+    try:
+        embedding_model_id = resolve_model_choice(
+            st.session_state.get("embedding_model_mode", "Default"),
+            st.session_state.get("custom_embedding_model_id", ""),
+            default_model_id=config.model_id,
+            kind="embedding",
+        )
+    except (ModelValidationError, ValueError) as exc:
+        embedding_model_id = None
+        embedding_error = str(exc)
+    try:
+        reranker_model_id = resolve_model_choice(
+            st.session_state.get("reranker_model_mode", "Default"),
+            st.session_state.get("custom_reranker_model_id", ""),
+            default_model_id=DEFAULT_RERANKER_MODEL,
+            kind="reranker",
+        )
+    except (ModelValidationError, ValueError) as exc:
+        reranker_model_id = None
+        reranker_error = str(exc)
+    return embedding_model_id, reranker_model_id, embedding_error, reranker_error
+
+
+def _render_model_settings(
+    config: AppConfig,
+    *,
+    embedding_error: str | None,
+    reranker_error: str | None,
+) -> None:
+    """Render compact, conditional selectors for the two model stages."""
+
+    with st.expander("Model settings"):
+        embedding_column, reranker_column = st.columns(2)
+        with embedding_column:
+            st.markdown("**Embedding model**")
+            embedding_mode = st.radio(
+                "Embedding model",
+                ("Default", "Custom"),
+                horizontal=True,
+                key="embedding_model_mode",
+            )
+            if embedding_mode == "Custom":
+                st.text_input(
+                    "Hugging Face embedding model ID",
+                    key="custom_embedding_model_id",
+                    placeholder="organization/sentence-transformer",
+                )
+            else:
+                st.caption(f"Default · `{config.model_id}`")
+            st.caption("Changing this model requires rebuilding Dense and Hybrid indexes.")
+            if embedding_error:
+                st.error(embedding_error)
+
+        with reranker_column:
+            st.markdown("**Reranker model**")
+            reranker_mode = st.radio(
+                "Reranker model",
+                ("Default", "Custom"),
+                horizontal=True,
+                key="reranker_model_mode",
+            )
+            if reranker_mode == "Custom":
+                st.text_input(
+                    "Hugging Face CrossEncoder model ID",
+                    key="custom_reranker_model_id",
+                    placeholder="organization/cross-encoder",
+                )
+            else:
+                st.caption(f"Default · `{DEFAULT_RERANKER_MODEL}`")
+            st.caption("Changing this model affects reranking only; corpus embeddings are reused.")
+            if reranker_error:
+                st.error(reranker_error)
+
+        st.caption(
+            "Only Hugging Face Hub model IDs are accepted. Remote model code stays disabled; "
+            "uploaded documents and embeddings are never sent to a model provider."
+        )
+
+
+def _sidebar(
+    config: AppConfig,
+    preferred_device: str,
+    embedding_model_id: str | None,
+    reranker_model_id: str | None,
+) -> None:
     engine: DenseSearchEngine | None = st.session_state.get("engine")
     active_device = engine.embedder.device if engine is not None else preferred_device
     backend = engine.index_backend if engine is not None else available_backend_name()
+    corpus_engine = engine or st.session_state.get("bm25_engine")
     with st.sidebar:
         st.markdown(
             """
@@ -71,16 +170,17 @@ def _sidebar(config: AppConfig, preferred_device: str) -> None:
             unsafe_allow_html=True,
         )
         st.markdown('<p class="sidebar-label">Session status</p>', unsafe_allow_html=True)
-        if engine is None:
+        if corpus_engine is None:
             st.info("No corpus is active")
         else:
-            st.success(f"Corpus ready · {len(engine.passages):,} passages")
+            st.success(f"Corpus ready · {len(corpus_engine.passages):,} passages")
 
         with st.expander("Advanced details"):
             st.markdown(f"**Profile**  \n{config.profile_name}")
-            st.markdown(f"**Dense encoder**  \n{config.model_id}")
-            st.markdown(f"**Public reranker**  \n{DEFAULT_RERANKER_MODEL}")
-            st.markdown(f"**Embedding dimension**  \n{config.embedding_dimension}")
+            st.markdown(f"**Dense encoder**  \n{embedding_model_id or 'Invalid selection'}")
+            st.markdown(f"**Reranker model**  \n{reranker_model_id or 'Invalid selection'}")
+            dimension = engine.embedder.dimension if engine is not None else "Detected at load"
+            st.markdown(f"**Embedding dimension**  \n{dimension}")
             st.markdown(f"**Candidate depth**  \n{config.candidate_depth}")
             st.markdown(f"**Final results**  \n{config.top_results}")
             st.markdown(
@@ -100,7 +200,7 @@ def _sidebar(config: AppConfig, preferred_device: str) -> None:
         )
 
 
-def _render_corpus_manifest(engine: DenseSearchEngine) -> None:
+def _render_corpus_manifest(engine: DenseSearchEngine | BM25SearchEngine) -> None:
     """Show a bounded, literal manifest for the active corpus."""
 
     entries: list[str] = []
@@ -124,7 +224,13 @@ def _render_corpus_manifest(engine: DenseSearchEngine) -> None:
             st.caption(f"Showing 20 of {len(entries):,} indexed documents.")
 
 
-def _render_corpus_section(config: AppConfig) -> None:
+def _render_corpus_section(
+    config: AppConfig,
+    *,
+    embedding_model_id: str | None,
+    embedding_error: str | None,
+    reranker_error: str | None,
+) -> None:
     st.markdown(
         """
         <div class="corpus-heading">
@@ -136,6 +242,11 @@ def _render_corpus_section(config: AppConfig) -> None:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+    _render_model_settings(
+        config,
+        embedding_error=embedding_error,
+        reranker_error=reranker_error,
     )
     nonce = st.session_state.setdefault("uploader_nonce", 0)
     uploads = st.file_uploader(
@@ -190,20 +301,24 @@ def _render_corpus_section(config: AppConfig) -> None:
                     "outside the active slice."
                 )
     process_column, clear_column = st.columns([2, 1])
+    selected_pipeline = st.session_state.get("retrieval_pipeline", "Dense")
+    dense_index_requested = selected_pipeline != "BM25"
     process = process_column.button(
         "Index corpus",
         type="primary",
-        disabled=not uploads,
+        disabled=not uploads or (dense_index_requested and embedding_model_id is None),
         width="stretch",
     )
-    has_corpus = isinstance(st.session_state.get("engine"), DenseSearchEngine)
+    has_corpus = isinstance(st.session_state.get("bm25_engine"), BM25SearchEngine)
     clear = clear_column.button("Clear corpus", disabled=not has_corpus, width="stretch")
     if clear:
         st.session_state.pop("engine", None)
         st.session_state.pop("bm25_engine", None)
         st.session_state.pop("hybrid_engine", None)
         st.session_state.pop("corpus_summary", None)
+        st.session_state.pop("corpus_passages", None)
         st.session_state.pop("search_response", None)
+        st.session_state.pop("dense_reindex_required", None)
         st.session_state["uploader_nonce"] = nonce + 1
         st.rerun()
 
@@ -212,19 +327,31 @@ def _render_corpus_section(config: AppConfig) -> None:
         try:
             with st.status("Building a replacement corpus index…", expanded=True) as status:
                 payloads = [(upload.name, upload.getvalue()) for upload in uploads]
+                embedder_loader = None
+                if dense_index_requested:
+                    assert embedding_model_id is not None
+                    embedder_loader = lambda: get_embedder(embedding_model_id)
                 prepared = CorpusService(
                     config,
-                    lambda: get_embedder(config.model_id, config.embedding_dimension),
+                    embedder_loader,
                 ).prepare(
                     payloads,
                     bounded_jsonl=bounded_jsonl,
                     jsonl_start_document=jsonl_start_document,
                     progress=status.write,
+                    build_dense=dense_index_requested,
                 )
                 elapsed = perf_counter() - started
-                st.session_state["engine"] = prepared.engine
+                if prepared.engine is None:
+                    st.session_state.pop("engine", None)
+                    st.session_state.pop("hybrid_engine", None)
+                    st.session_state["dense_reindex_required"] = True
+                else:
+                    st.session_state["engine"] = prepared.engine
+                    st.session_state["hybrid_engine"] = prepared.hybrid_engine
+                    st.session_state["dense_reindex_required"] = False
                 st.session_state["bm25_engine"] = prepared.bm25_engine
-                st.session_state["hybrid_engine"] = prepared.hybrid_engine
+                st.session_state["corpus_passages"] = prepared.passage_records
                 st.session_state["search_response"] = None
                 st.session_state["corpus_summary"] = {
                     "files": prepared.files,
@@ -233,9 +360,15 @@ def _render_corpus_section(config: AppConfig) -> None:
                     "embeddings": prepared.embeddings,
                     "seconds": elapsed,
                     "warnings": prepared.warnings,
+                    "embedding_model_id": (
+                        prepared.engine.embedder.model_id if prepared.engine is not None else None
+                    ),
+                    "embedding_dimension": (
+                        prepared.engine.embedder.dimension if prepared.engine is not None else None
+                    ),
                 }
                 status.update(label="Corpus indexed successfully.", state="complete", expanded=False)
-        except (DocumentValidationError, ValueError) as exc:
+        except (DocumentValidationError, EmbeddingModelUnavailableError, ValueError) as exc:
             LOGGER.exception("Corpus indexing failed")
             st.error("The new corpus was not installed. The previous corpus is still active.")
             st.text(str(exc))
@@ -251,6 +384,60 @@ def _render_corpus_section(config: AppConfig) -> None:
                 "The replacement corpus could not be prepared. The previous corpus is still active."
             )
 
+    bm25_engine = st.session_state.get("bm25_engine")
+    dense_engine = st.session_state.get("engine")
+    if isinstance(bm25_engine, BM25SearchEngine) and not isinstance(
+        dense_engine, DenseSearchEngine
+    ):
+        st.info(
+            "BM25 is ready. Build the Dense and Hybrid indexes to use the selected embedding model."
+        )
+        rebuild = st.button(
+            "Build Dense + Hybrid indexes",
+            disabled=embedding_model_id is None,
+            width="stretch",
+            key="rebuild_dense_index",
+        )
+        if rebuild:
+            assert embedding_model_id is not None
+            started = perf_counter()
+            try:
+                with st.status("Building Dense and Hybrid indexes…", expanded=True) as status:
+                    status.write(f"Loading {embedding_model_id}.")
+                    dense_engine, hybrid_engine = build_dense_engines(
+                        config,
+                        bm25_engine.passages,
+                        lambda: get_embedder(embedding_model_id),
+                        bm25_engine=bm25_engine,
+                    )
+                    st.session_state["engine"] = dense_engine
+                    st.session_state["hybrid_engine"] = hybrid_engine
+                    st.session_state["search_response"] = None
+                    st.session_state["dense_reindex_required"] = False
+                    summary = dict(st.session_state.get("corpus_summary", {}))
+                    summary.update(
+                        {
+                            "embeddings": len(dense_engine.passages),
+                            "seconds": perf_counter() - started,
+                            "embedding_model_id": dense_engine.embedder.model_id,
+                            "embedding_dimension": dense_engine.embedder.dimension,
+                        }
+                    )
+                    st.session_state["corpus_summary"] = summary
+                    status.update(
+                        label="Dense and Hybrid indexes are ready.",
+                        state="complete",
+                        expanded=False,
+                    )
+                    st.rerun()
+            except (EmbeddingModelUnavailableError, ModelValidationError, ValueError) as exc:
+                LOGGER.exception("Dense index rebuild failed")
+                st.error("Dense and Hybrid indexes could not be built with the selected model.")
+                st.text(str(exc))
+            except (RuntimeError, OSError):
+                LOGGER.exception("Dense index rebuild failed")
+                st.error("Dense and Hybrid indexes could not be built with the selected model.")
+
     summary = st.session_state.get("corpus_summary")
     if summary:
         st.success("Knowledge base ready")
@@ -259,8 +446,8 @@ def _render_corpus_section(config: AppConfig) -> None:
         metrics[1].metric("Passages", summary["passages"])
         metrics[2].metric("Indexed", summary["embeddings"])
         metrics[3].metric("Preparation", f"{summary['seconds']:.1f} s")
-        active_engine = st.session_state.get("engine")
-        if isinstance(active_engine, DenseSearchEngine):
+        active_engine = st.session_state.get("engine") or st.session_state.get("bm25_engine")
+        if isinstance(active_engine, (DenseSearchEngine, BM25SearchEngine)):
             _render_corpus_manifest(active_engine)
         if summary["warnings"]:
             with st.expander(f"Corpus notes ({len(summary['warnings'])})"):
@@ -270,7 +457,13 @@ def _render_corpus_section(config: AppConfig) -> None:
         st.caption("Index documents to unlock the search canvas.")
 
 
-def _render_search_section() -> None:
+def _render_search_section(
+    *,
+    embedding_model_id: str | None,
+    embedding_error: str | None,
+    reranker_model_id: str | None,
+    reranker_error: str | None,
+) -> None:
     st.markdown(
         """
         <div class="search-section-heading">
@@ -293,7 +486,8 @@ def _render_search_section() -> None:
         "Hybrid": st.session_state.get("hybrid_engine"),
     }
     engine = engines[pipeline]
-    ready = engine is not None and engine.is_indexed
+    model_selection_ready = pipeline == "BM25" or embedding_model_id is not None
+    ready = engine is not None and engine.is_indexed and model_selection_ready
     st.markdown(
         f'<p class="pipeline-description">{PIPELINES[pipeline]}</p>',
         unsafe_allow_html=True,
@@ -307,18 +501,33 @@ def _render_search_section() -> None:
         key="reranker",
     )
     if reranker_choice == "Cross-Encoder":
+        selected_reranker = reranker_model_id or "invalid custom model"
         st.markdown(
             '<p class="reranker-description">Reranks the retrieved candidate set using '
-            f'{DEFAULT_RERANKER_MODEL}.</p>',
+            f'{selected_reranker}.</p>',
             unsafe_allow_html=True,
         )
+        if reranker_error:
+            st.error(reranker_error)
+    query_ready = ready and not (
+        reranker_choice == "Cross-Encoder" and reranker_model_id is None
+    )
     query = st.chat_input(
         "Ask the active corpus a precise question",
-        disabled=not ready,
+        disabled=not query_ready,
         key="retrieval_query",
     )
     if not ready:
-        st.caption("Index documents above to begin.")
+        if pipeline in {"Dense", "Hybrid"} and isinstance(
+            st.session_state.get("bm25_engine"), BM25SearchEngine
+        ):
+            st.caption("Build the Dense and Hybrid indexes above to use this pipeline.")
+        elif embedding_error and pipeline in {"Dense", "Hybrid"}:
+            st.caption("Choose a valid embedding model to use this pipeline.")
+        else:
+            st.caption("Index documents above to begin.")
+    elif not query_ready:
+        st.caption("Choose a valid reranker model, or select Off.")
     else:
         st.caption("Press Enter or select the send control to retrieve passages.")
 
@@ -327,8 +536,9 @@ def _render_search_section() -> None:
             assert engine is not None
             reranker = None
             if reranker_choice == "Cross-Encoder":
+                assert reranker_model_id is not None
                 reranker = get_cross_encoder_reranker(
-                    DEFAULT_RERANKER_MODEL,
+                    reranker_model_id,
                     detect_preferred_device(),
                 )
             st.session_state["search_response"] = SearchService(engine, reranker).search(query)
@@ -338,6 +548,9 @@ def _render_search_section() -> None:
                 "Cross-Encoder reranking is unavailable. The base retrieval system is still "
                 "ready; select Off to search without reranking."
             )
+            st.caption(str(exc))
+        except ModelValidationError as exc:
+            st.error("The selected model ID is invalid.")
             st.caption(str(exc))
         except ValueError as exc:
             st.error("Retrieval could not be started.")
@@ -364,7 +577,15 @@ def main() -> None:
     st.markdown(f"<style>{stylesheet}</style>", unsafe_allow_html=True)
     config = load_config()
     preferred_device = detect_preferred_device()
-    _sidebar(config, preferred_device)
+    (
+        embedding_model_id,
+        reranker_model_id,
+        embedding_error,
+        reranker_error,
+    ) = _resolve_model_choices(config)
+    if embedding_model_id is not None:
+        invalidate_dense_indexes_for_model(st.session_state, embedding_model_id)
+    _sidebar(config, preferred_device, embedding_model_id, reranker_model_id)
     st.markdown(
         """
         <section class="search-hero">
@@ -375,8 +596,18 @@ def main() -> None:
         unsafe_allow_html=True,
     )
     with st.container(border=True, key="corpus_workspace"):
-        _render_corpus_section(config)
-    _render_search_section()
+        _render_corpus_section(
+            config,
+            embedding_model_id=embedding_model_id,
+            embedding_error=embedding_error,
+            reranker_error=reranker_error,
+        )
+    _render_search_section(
+        embedding_model_id=embedding_model_id,
+        embedding_error=embedding_error,
+        reranker_model_id=reranker_model_id,
+        reranker_error=reranker_error,
+    )
     response = st.session_state.get("search_response")
     if response is not None:
         render_results(response, config=config)

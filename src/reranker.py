@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 import numpy as np
 
 from .embedder import detect_preferred_device
+from .model_ids import validate_huggingface_model_id
 from .types import RankedPassage
 
 if TYPE_CHECKING:
@@ -49,6 +50,7 @@ def _load_cached_cross_encoder(
 ) -> tuple[CrossEncoderLike, str]:
     """Load one model per configuration, retrying MPS loads on CPU."""
 
+    model_id = validate_huggingface_model_id(model_id, kind="reranker")
     try:
         from sentence_transformers import CrossEncoder
     except Exception as exc:
@@ -65,6 +67,7 @@ def _load_cached_cross_encoder(
             device=target_device,
             cache_folder=cache_folder,
             local_files_only=local_files_only,
+            trust_remote_code=False,
         )
         model.eval()
         return model
@@ -75,14 +78,16 @@ def _load_cached_cross_encoder(
     except Exception as exc:
         if device != "mps":
             raise RerankerUnavailableError(
-                f"Could not load reranker {model_id} on {device}."
+                f"Reranker '{model_id}' is not a compatible Hugging Face CrossEncoder model "
+                f"or could not be loaded on {device}."
             ) from exc
         LOGGER.warning("Cross-encoder failed to load on MPS; retrying on CPU", exc_info=True)
         try:
             return build("cpu"), "cpu"
         except Exception as cpu_exc:
             raise RerankerUnavailableError(
-                f"Could not load reranker {model_id} on MPS or CPU."
+                f"Reranker '{model_id}' is not a compatible Hugging Face CrossEncoder model "
+                "or could not be loaded on MPS or CPU."
             ) from cpu_exc
 
 
@@ -140,7 +145,7 @@ class CrossEncoderReranker:
         batch_size: int = 32,
         cache_folder: Path | str | None = None,
     ) -> None:
-        self.model_id = model_id
+        self.model_id = validate_huggingface_model_id(model_id, kind="reranker")
         self.device = device or detect_preferred_device()
         self.batch_size = batch_size
         self.cache_folder = Path(cache_folder) if cache_folder else (

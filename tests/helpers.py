@@ -39,9 +39,17 @@ class WhitespaceTokenizer:
 
 
 class FakeEmbedder:
-    def __init__(self, passage_vectors: np.ndarray, query_vector: np.ndarray) -> None:
+    def __init__(
+        self,
+        passage_vectors: np.ndarray,
+        query_vector: np.ndarray,
+        *,
+        model_id: str = "fake/embedding-model",
+    ) -> None:
         self.passage_vectors = np.asarray(passage_vectors, dtype=np.float32)
         self.query_vector = np.asarray(query_vector, dtype=np.float32)
+        self.dimension = int(self.passage_vectors.shape[1])
+        self.model_id = model_id
         self.tokenizer = WhitespaceTokenizer()
         self.device = "cpu"
         self.passage_calls = 0

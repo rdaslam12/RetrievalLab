@@ -8,13 +8,13 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Protocol
 
 from .bm25_retriever import BM25SearchEngine
-from .chunker import TokenizerLike, chunk_sections
+from .chunker import TokenizerLike, WhitespaceTokenizer, chunk_sections
 from .config import AppConfig
 from .document_parser import DocumentValidationError, parse_corpus
 from .hybrid_retriever import HybridSearchEngine
 from .reranker import rerank_candidates
 from .search_engine import DenseSearchEngine, EmbedderLike
-from .types import SearchResponse
+from .types import Passage, SearchResponse
 
 if TYPE_CHECKING:
     from .interfaces import Reranker, SearchEngine
@@ -28,9 +28,10 @@ class CorpusEmbedder(EmbedderLike, Protocol):
 class PreparedCorpus:
     """A complete replacement corpus that is safe for the caller to install."""
 
-    engine: DenseSearchEngine
+    engine: DenseSearchEngine | None
     bm25_engine: BM25SearchEngine
-    hybrid_engine: HybridSearchEngine
+    hybrid_engine: HybridSearchEngine | None
+    passage_records: tuple[Passage, ...]
     files: int
     documents: int
     passages: int
@@ -44,7 +45,7 @@ class CorpusService:
     def __init__(
         self,
         config: AppConfig,
-        embedder_loader: Callable[[], CorpusEmbedder],
+        embedder_loader: Callable[[], CorpusEmbedder] | None = None,
     ) -> None:
         self.config = config
         self._embedder_loader = embedder_loader
@@ -56,6 +57,7 @@ class CorpusService:
         bounded_jsonl: bool = False,
         jsonl_start_document: int = 1,
         progress: Callable[[str], None] | None = None,
+        build_dense: bool = True,
     ) -> PreparedCorpus:
         """Parse, chunk, encode, and index a replacement corpus locally."""
 
@@ -75,12 +77,20 @@ class CorpusService:
                 )
             sections_to_chunk = parsed.sections[jsonl_start_document - 1 :]
 
-        report_progress("Loading the Arctic-S encoder and tokenizer.")
-        embedder = self._embedder_loader()
+        embedder: CorpusEmbedder | None = None
+        if build_dense:
+            if self._embedder_loader is None:
+                raise ValueError("Dense indexing requires an embedding model loader.")
+            report_progress("Loading the selected embedding model and tokenizer.")
+            embedder = self._embedder_loader()
+            tokenizer = embedder.tokenizer
+        else:
+            report_progress("Preparing BM25 passages without loading an embedding model.")
+            tokenizer = WhitespaceTokenizer()
         report_progress("Chunking with 350-token windows and 50-token overlap.")
         passages = chunk_sections(
             sections_to_chunk,
-            embedder.tokenizer,
+            tokenizer,
             chunk_size=self.config.chunk_size,
             overlap=self.config.chunk_overlap,
             max_passages=self.config.max_passages,
@@ -102,21 +112,43 @@ class CorpusService:
                     f"{omitted_documents:,} documents outside this slice."
                 )
 
-        report_progress(f"Encoding {len(passages)} passages and creating the exact index.")
-        engine = DenseSearchEngine(self.config, embedder)
-        engine.index_passages(passages)
-        bm25_engine = BM25SearchEngine(self.config, engine.passages)
-        hybrid_engine = HybridSearchEngine(engine, bm25_engine)
+        passage_records = tuple(passages)
+        bm25_engine = BM25SearchEngine(self.config, passage_records)
+        engine: DenseSearchEngine | None = None
+        hybrid_engine: HybridSearchEngine | None = None
+        if embedder is not None:
+            report_progress(f"Encoding {len(passages)} passages and creating the exact index.")
+            engine = DenseSearchEngine(self.config, embedder)
+            engine.index_passages(passage_records)
+            hybrid_engine = HybridSearchEngine(engine, bm25_engine)
         return PreparedCorpus(
             engine=engine,
             bm25_engine=bm25_engine,
             hybrid_engine=hybrid_engine,
+            passage_records=passage_records,
             files=parsed.files_processed,
             documents=len(indexed_source_ids),
             passages=len(passages),
-            embeddings=len(passages),
+            embeddings=len(passages) if engine is not None else 0,
             warnings=tuple(corpus_warnings),
         )
+
+
+def build_dense_engines(
+    config: AppConfig,
+    passages: Sequence[Passage],
+    embedder_loader: Callable[[], CorpusEmbedder],
+    *,
+    bm25_engine: BM25SearchEngine | None = None,
+) -> tuple[DenseSearchEngine, HybridSearchEngine]:
+    """Build Dense and Hybrid over an existing corpus without reparsing uploads."""
+
+    passage_records = tuple(passages)
+    embedder = embedder_loader()
+    dense_engine = DenseSearchEngine(config, embedder)
+    dense_engine.index_passages(passage_records)
+    lexical_engine = bm25_engine or BM25SearchEngine(config, passage_records)
+    return dense_engine, HybridSearchEngine(dense_engine, lexical_engine)
 
 
 class SearchService:

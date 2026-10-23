@@ -51,6 +51,7 @@ class DeterministicSmokeEmbedder:
 
     def __init__(self, dimension: int) -> None:
         self.dimension = dimension
+        self.model_id = "smoke/deterministic-embedder"
         self.tokenizer = SmokeTokenizer()
 
     def _vector(self, text: str) -> np.ndarray:
@@ -82,7 +83,7 @@ def main() -> None:
     if use_real_model:
         from src.embedder import ArcticEmbedder
 
-        embedder = ArcticEmbedder(config.model_id, config.embedding_dimension)
+        embedder = ArcticEmbedder(config.model_id)
     else:
         embedder = DeterministicSmokeEmbedder(config.embedding_dimension)
     payloads = [

@@ -88,3 +88,5 @@ class SearchResponse:
     reranking_used: bool = False
     reranker_name: str | None = None
     reranking_latency_ms: float = 0.0
+    dense_model_id: str | None = None
+    embedding_dimension: int | None = None

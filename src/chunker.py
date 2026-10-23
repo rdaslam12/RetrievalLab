@@ -22,6 +22,33 @@ class TokenizerLike(Protocol):
     ) -> str: ...
 
 
+class WhitespaceTokenizer:
+    """Small reversible tokenizer for BM25-only corpus preparation."""
+
+    def __init__(self) -> None:
+        self._token_to_id: dict[str, int] = {}
+        self._id_to_token: dict[int, str] = {}
+
+    def encode(self, text: str, *, add_special_tokens: bool = False) -> list[int]:
+        token_ids: list[int] = []
+        for token in text.split():
+            if token not in self._token_to_id:
+                token_id = len(self._token_to_id) + 1
+                self._token_to_id[token] = token_id
+                self._id_to_token[token_id] = token
+            token_ids.append(self._token_to_id[token])
+        return token_ids
+
+    def decode(
+        self,
+        token_ids: Sequence[int],
+        *,
+        skip_special_tokens: bool = True,
+        clean_up_tokenization_spaces: bool = False,
+    ) -> str:
+        return " ".join(self._id_to_token[int(token_id)] for token_id in token_ids)
+
+
 def normalize_whitespace(text: str) -> str:
     """Collapse excessive whitespace without touching punctuation or case."""
 

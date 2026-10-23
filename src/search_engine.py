@@ -15,6 +15,8 @@ from .vector_index import create_vector_index
 
 class EmbedderLike(Protocol):
     device: str
+    dimension: int
+    model_id: str
 
     def encode_passages(self, texts: Sequence[str]) -> np.ndarray: ...
 
@@ -88,7 +90,7 @@ class DenseSearchEngine:
             raise ValueError("Passage chunk IDs must be unique")
         candidate_embeddings = _unit_normalize(
             self.embedder.encode_passages([passage.text for passage in candidate_passages]),
-            self.config.embedding_dimension,
+            self.embedder.dimension,
         )
         if candidate_embeddings.shape[0] != len(candidate_passages):
             raise ValueError("Encoder returned a different number of embeddings than passages")
@@ -106,7 +108,7 @@ class DenseSearchEngine:
         if not self.is_indexed or self.vector_index is None or self.embeddings is None:
             raise RuntimeError("Index a corpus before searching.")
         query_vector = _unit_normalize(
-            self.embedder.encode_query(cleaned_query), self.config.embedding_dimension
+            self.embedder.encode_query(cleaned_query), self.embedder.dimension
         )[0]
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
         return cleaned_query, query_vector, self.vector_index.search(query_vector, candidate_depth)
@@ -137,6 +139,8 @@ class DenseSearchEngine:
             index_backend=self.vector_index.backend,
             device=str(self.embedder.device),
             retrieval_method="Dense",
+            dense_model_id=self.embedder.model_id,
+            embedding_dimension=self.embedder.dimension,
         )
 
     def search(self, query: str) -> SearchResponse:

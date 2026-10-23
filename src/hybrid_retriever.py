@@ -146,6 +146,8 @@ class HybridSearchEngine:
             index_backend=self.index_backend,
             device=str(self.dense_engine.embedder.device),
             retrieval_method="Hybrid",
+            dense_model_id=self.dense_engine.embedder.model_id,
+            embedding_dimension=self.dense_engine.embedder.dimension,
         )
 
     def search(self, query: str) -> SearchResponse:

@@ -617,6 +617,58 @@ h3 {
     letter-spacing: 0.025em;
 }
 
+/* Model controls stay compact and subordinate to the corpus workflow. */
+.st-key-corpus_workspace [data-testid="stExpander"] {
+    border-color: var(--line);
+    border-radius: 14px;
+    background: #141925;
+    box-shadow: none;
+}
+
+.st-key-corpus_workspace [data-testid="stExpander"] summary {
+    min-height: 2.9rem;
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    font-weight: 620;
+}
+
+.st-key-embedding_model_mode,
+.st-key-reranker_model_mode {
+    max-width: 15rem;
+    margin: 0.35rem 0 0.55rem;
+}
+
+.st-key-embedding_model_mode [data-testid="stRadio"] [role="radiogroup"],
+.st-key-reranker_model_mode [data-testid="stRadio"] [role="radiogroup"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.22rem;
+    border-radius: 11px;
+    box-shadow: none;
+}
+
+.st-key-embedding_model_mode [data-testid="stRadio"] [role="radiogroup"] > label,
+.st-key-reranker_model_mode [data-testid="stRadio"] [role="radiogroup"] > label {
+    min-height: 2.1rem;
+    padding: 0.38rem 0.65rem;
+    border-radius: 8px;
+}
+
+.st-key-custom_embedding_model_id input,
+.st-key-custom_reranker_model_id input {
+    min-height: 2.55rem;
+    border-color: var(--line-strong);
+    border-radius: 10px;
+    color: var(--ink);
+    background: #0f131c;
+    font-family: var(--mono) !important;
+    font-size: 0.78rem;
+}
+
+.st-key-custom_embedding_model_id input::placeholder,
+.st-key-custom_reranker_model_id input::placeholder {
+    color: #8f97a8;
+}
+
 .st-key-corpus_workspace [data-testid="stFileUploaderDropzone"] {
     min-height: 8.5rem;
     padding: 1.15rem;

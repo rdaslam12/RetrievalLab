@@ -133,8 +133,11 @@ def _render_pipeline_details(response: SearchResponse, config: AppConfig, *, met
     if method in {"Dense", "Hybrid"}:
         details.extend(
             [
-                ("Dense model", config.model_id),
-                ("Embedding dimension", str(config.embedding_dimension)),
+                ("Dense model", response.dense_model_id or config.model_id),
+                (
+                    "Embedding dimension",
+                    str(response.embedding_dimension or config.embedding_dimension),
+                ),
                 ("Device", response.device.upper()),
             ]
         )
@@ -217,7 +220,7 @@ def render_about_method() -> None:
     with st.expander("About the retrieval pipelines"):
         st.markdown(
             """
-            **Dense** uses normalized Arctic-S query and passage embeddings with exact inner-product retrieval.
+            **Dense** uses normalized SentenceTransformer-compatible query and passage embeddings with exact inner-product retrieval.
 
             **BM25** retrieves by lexical term evidence and preserves its raw Okapi BM25 score.
 
