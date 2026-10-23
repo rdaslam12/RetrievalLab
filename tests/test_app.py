@@ -26,3 +26,13 @@ def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
     assert app.text_input("custom_embedding_model_id")
     assert app.text_input("custom_reranker_model_id")
     assert len(app.text_input) == 2
+
+
+def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() -> None:
+    app = AppTest.from_file("app.py", default_timeout=10).run()
+
+    assert not app.exception
+    assert app.file_uploader("evaluation_queries").label == "Query JSONL"
+    assert app.file_uploader("evaluation_qrels").label == "Qrels TSV"
+    assert app.button("run_evaluation").disabled
+    assert any("Evaluate retrieval" in item.value for item in app.markdown)

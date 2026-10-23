@@ -77,6 +77,10 @@ class DenseSearchEngine:
     def top_results(self) -> int:
         return self.config.top_results
 
+    @property
+    def candidate_depth(self) -> int:
+        return self.config.candidate_depth
+
     def index_passages(self, passages: Sequence[Passage]) -> None:
         """Build replacement state locally and install it only after complete success."""
 
@@ -114,6 +118,8 @@ class DenseSearchEngine:
         return cleaned_query, query_vector, self.vector_index.search(query_vector, candidate_depth)
 
     def _search(self, query: str, *, result_limit: int) -> SearchResponse:
+        if result_limit <= 0 or result_limit > self.config.candidate_depth:
+            raise ValueError("Result limit must be between 1 and the fixed candidate depth.")
         total_started = perf_counter()
         retrieval_started = perf_counter()
         cleaned_query, _, hits = self.retrieve_candidates(query)
@@ -147,6 +153,11 @@ class DenseSearchEngine:
         """Retrieve and return the configured number of dense results."""
 
         return self._search(query, result_limit=self.config.top_results)
+
+    def search_with_limit(self, query: str, result_limit: int) -> SearchResponse:
+        """Return a requested number of results without changing interactive defaults."""
+
+        return self._search(query, result_limit=result_limit)
 
     def search_candidates(self, query: str) -> SearchResponse:
         """Return the fixed-depth dense candidate set for optional reranking."""

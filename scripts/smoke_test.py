@@ -18,6 +18,8 @@ if str(ROOT) not in sys.path:
 
 from src.services import CorpusService, SearchService  # noqa: E402
 from src.config import load_config  # noqa: E402
+from src.evaluation import EvaluationQuery  # noqa: E402
+from src.evaluation_service import EvaluationService  # noqa: E402
 from src.types import RankedPassage  # noqa: E402
 
 
@@ -117,6 +119,12 @@ def main() -> None:
         raise RuntimeError("JSONL document was not returned by lexical retrieval")
     if not any(result.passage.document_id == "jsonl-dense" for result in hybrid.results):
         raise RuntimeError("JSONL document was not returned by hybrid retrieval")
+    evaluation = EvaluationService(prepared.hybrid_engine, reranker).evaluate(
+        [EvaluationQuery("smoke-query", "dense embeddings")],
+        {"smoke-query": {"jsonl-dense": 1.0}},
+    )
+    if evaluation.metrics["Hit Rate"][10] != 1.0:
+        raise RuntimeError("Document-level retrieval evaluation did not find the labeled document")
     print(
         "Smoke test passed:",
         f"files={prepared.files}",
@@ -124,6 +132,7 @@ def main() -> None:
         f"dense_backend={dense.index_backend}",
         "pipelines=dense,bm25,hybrid",
         "reranking=passed",
+        "evaluation=passed",
     )
 
 

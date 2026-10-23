@@ -104,7 +104,13 @@ class HybridSearchEngine:
     def top_results(self) -> int:
         return self.config.top_results
 
+    @property
+    def candidate_depth(self) -> int:
+        return self.config.candidate_depth
+
     def _search(self, query: str, *, result_limit: int) -> SearchResponse:
+        if result_limit <= 0 or result_limit > self.config.candidate_depth:
+            raise ValueError("Result limit must be between 1 and the fixed candidate depth.")
         cleaned_query = query.strip()
         if not cleaned_query:
             raise ValueError("Enter a non-empty search query.")
@@ -152,6 +158,11 @@ class HybridSearchEngine:
 
     def search(self, query: str) -> SearchResponse:
         return self._search(query, result_limit=self.config.top_results)
+
+    def search_with_limit(self, query: str, result_limit: int) -> SearchResponse:
+        """Return a requested number of results without changing interactive defaults."""
+
+        return self._search(query, result_limit=result_limit)
 
     def search_candidates(self, query: str) -> SearchResponse:
         """Return the fixed-depth fused candidate set for optional reranking."""

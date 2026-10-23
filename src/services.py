@@ -158,9 +158,16 @@ class SearchService:
         self.engine = engine
         self.reranker = reranker
 
-    def search(self, query: str) -> SearchResponse:
+    def search(self, query: str, *, result_limit: int | None = None) -> SearchResponse:
+        """Search normally or return a caller-selected slice of the fixed candidates."""
+
+        final_limit = self.engine.top_results if result_limit is None else result_limit
+        if final_limit <= 0 or final_limit > self.engine.candidate_depth:
+            raise ValueError("Result limit must be between 1 and the fixed candidate depth.")
         if self.reranker is None:
-            return self.engine.search(query)
+            if result_limit is None:
+                return self.engine.search(query)
+            return self.engine.search_with_limit(query, final_limit)
 
         total_started = perf_counter()
         retrieval_response = self.engine.search_candidates(query)
@@ -173,7 +180,7 @@ class SearchService:
         reranking_latency = (perf_counter() - reranking_started) * 1000.0
         return replace(
             retrieval_response,
-            results=reranked[: self.engine.top_results],
+            results=reranked[:final_limit],
             reranking_used=True,
             reranker_name=self.reranker.name,
             reranking_latency_ms=reranking_latency,

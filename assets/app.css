@@ -701,6 +701,83 @@ h3 {
     box-shadow: none;
 }
 
+/* Evaluation is a separate operational workspace that inherits the corpus vocabulary. */
+.st-key-evaluation_workspace {
+    margin-top: 3.25rem;
+}
+
+.st-key-evaluation_workspace[data-testid="stVerticalBlockBorderWrapper"],
+.st-key-evaluation_workspace [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: rgba(194, 207, 255, 0.14) !important;
+    border-radius: 16px !important;
+    background: #11151f;
+    box-shadow: none;
+}
+
+.st-key-evaluation_workspace [data-testid="stVerticalBlock"] {
+    gap: 0.85rem;
+}
+
+.evaluation-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.evaluation-heading h2 {
+    margin: 0 0 0.38rem !important;
+    font-size: 1.36rem !important;
+}
+
+.evaluation-heading p {
+    max-width: 56ch;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.55;
+}
+
+.evaluation-heading > span {
+    flex: 0 0 auto;
+    margin-top: 0.15rem;
+    padding: 0.42rem 0.58rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: #b6c5ef;
+    background: #171c29;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 650;
+    letter-spacing: 0.025em;
+}
+
+.st-key-evaluation_workspace [data-testid="stFileUploaderDropzone"] {
+    min-height: 7rem;
+    border: 1px dashed var(--line-strong);
+    border-radius: 14px;
+    background: #151a25;
+    box-shadow: none;
+    transition: border-color 180ms ease-out, background-color 180ms ease-out;
+}
+
+.st-key-evaluation_workspace [data-testid="stFileUploaderDropzone"]:hover {
+    border-color: rgba(138, 180, 248, 0.55);
+    background: #181e2b;
+}
+
+.st-key-evaluation_workspace [data-testid="stDataFrame"] {
+    box-shadow: none;
+}
+
+.st-key-evaluation_workspace [data-testid="stMetric"] {
+    min-height: 5.4rem;
+    background: #141925;
+    box-shadow: none;
+}
+
 /* Results read as evidence sheets, with rank and measurements in one rhythm. */
 .query-block {
     position: relative;
@@ -949,7 +1026,16 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover {
         gap: 0.75rem;
     }
 
+    .evaluation-heading {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
     .corpus-heading > span {
+        margin-top: 0;
+    }
+
+    .evaluation-heading > span {
         margin-top: 0;
     }
 

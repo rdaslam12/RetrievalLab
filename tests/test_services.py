@@ -89,3 +89,17 @@ def test_search_service_preserves_direct_engine_results() -> None:
     assert through_service.candidate_depth_used == direct.candidate_depth_used
     assert through_service.indexed_passages == direct.indexed_passages
     assert through_service.results == direct.results
+
+
+def test_search_service_supports_internal_result_depth_without_changing_default() -> None:
+    vectors = axis_vectors(12)
+    embedder = FakeEmbedder(vectors, vectors[0])
+    engine = CorpusService(make_test_config(top_results=2), lambda: embedder).prepare(
+        [(f"document-{index}.txt", f"passage {index}".encode()) for index in range(12)]
+    ).engine
+
+    evaluation = SearchService(engine).search("query", result_limit=10)
+    interactive = SearchService(engine).search("query")
+
+    assert len(evaluation.results) == 10
+    assert len(interactive.results) == 2

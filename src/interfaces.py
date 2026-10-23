@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
-from .types import RankedPassage, SearchResponse, VectorHit
+from .types import Passage, RankedPassage, SearchResponse, VectorHit
 
 
 QueryT = TypeVar("QueryT", contravariant=True)
@@ -29,7 +29,18 @@ class SearchEngine(Protocol):
     @property
     def top_results(self) -> int: ...
 
+    @property
+    def candidate_depth(self) -> int: ...
+
+    @property
+    def passages(self) -> tuple[Passage, ...]: ...
+
     def search(self, query: str) -> SearchResponse: ...
+
+    def search_with_limit(self, query: str, result_limit: int) -> SearchResponse:
+        """Return a caller-selected result count within the fixed candidate set."""
+
+        ...
 
     def search_candidates(self, query: str) -> SearchResponse:
         """Return the fixed first-stage candidate set without final truncation."""

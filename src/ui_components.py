@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from .config import AppConfig
+from .evaluation_service import EvaluationReport
 from .hybrid_retriever import DEFAULT_RRF_K
 from .types import RankedPassage, SearchResponse
 
@@ -214,6 +215,78 @@ def render_results(response: SearchResponse, *, config: AppConfig) -> None:
         st.caption("RRF combines branch ranks; its scores are not probabilities or normalized raw scores.")
     else:
         st.caption("Dense values are retrieval scores, not probabilities or confidence.")
+
+
+def render_evaluation_report(report: EvaluationReport) -> None:
+    """Render aggregate metrics, latency summaries, and per-query diagnostics."""
+
+    st.markdown("### Evaluation results")
+    metric_rows = [
+        {
+            "Metric": metric_name,
+            **{f"@{k}": report.metrics[metric_name][k] for k in report.k_values},
+        }
+        for metric_name in ("Recall", "Hit Rate", "MRR", "NDCG")
+    ]
+    metric_columns = {
+        f"@{k}": st.column_config.NumberColumn(format="%.4f") for k in report.k_values
+    }
+    st.dataframe(
+        pd.DataFrame(metric_rows),
+        hide_index=True,
+        width="stretch",
+        column_config=metric_columns,
+    )
+    st.caption(
+        "Each value is the arithmetic mean of per-query document-level metrics over every "
+        "loaded query. Queries without positive judgments contribute 0."
+    )
+
+    dataset_columns = st.columns(2)
+    dataset_columns[0].metric("Evaluated queries", report.evaluated_queries)
+    dataset_columns[1].metric("Queries with judgments", report.queries_with_judgments)
+    latency_count = 3 if report.mean_reranking_latency_ms is not None else 2
+    latency_columns = st.columns(latency_count)
+    latency_columns[0].metric(
+        "Mean retrieval latency", f"{report.mean_retrieval_latency_ms:.1f} ms"
+    )
+    next_column = 1
+    if report.mean_reranking_latency_ms is not None:
+        latency_columns[1].metric(
+            "Mean reranking latency", f"{report.mean_reranking_latency_ms:.1f} ms"
+        )
+        next_column = 2
+    latency_columns[next_column].metric(
+        "Mean total latency", f"{report.mean_total_latency_ms:.1f} ms"
+    )
+    for warning in report.warnings:
+        st.warning(warning)
+
+    st.markdown("### Per-query diagnostics")
+    diagnostic_rows = [
+        {
+            "Query ID": result.query_id,
+            "Query text": result.query_text,
+            "Relevant documents": result.relevant_document_count,
+            "First relevant rank": result.first_relevant_rank,
+            "Hit@10": result.hit_at_10,
+            "Retrieved document IDs (top 10)": ", ".join(result.retrieved_document_ids),
+        }
+        for result in report.query_results
+    ]
+    st.dataframe(
+        pd.DataFrame(diagnostic_rows),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Query text": st.column_config.TextColumn(width="large"),
+            "Retrieved document IDs (top 10)": st.column_config.TextColumn(width="large"),
+        },
+    )
+    st.caption(
+        "Passages are collapsed to their document_id, or stable source_id for PDF, DOCX, and "
+        "TXT uploads. Only the highest-ranked passage occurrence determines document rank."
+    )
 
 
 def render_about_method() -> None:

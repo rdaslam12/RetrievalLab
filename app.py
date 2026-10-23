@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -16,6 +17,13 @@ from src.embedder import (
     SentenceTransformerEmbedder,
     detect_preferred_device,
 )
+from src.evaluation import (
+    EvaluationDataError,
+    corpus_document_ids,
+    parse_qrels_tsv,
+    parse_query_jsonl,
+)
+from src.evaluation_service import EvaluationService
 from src.model_ids import ModelValidationError
 from src.model_selection import invalidate_dense_indexes_for_model, resolve_model_choice
 from src.reranker import (
@@ -25,7 +33,7 @@ from src.reranker import (
 )
 from src.search_engine import DenseSearchEngine
 from src.services import CorpusService, SearchService, build_dense_engines
-from src.ui_components import render_about_method, render_results
+from src.ui_components import render_about_method, render_evaluation_report, render_results
 from src.vector_index import available_backend_name
 
 
@@ -210,9 +218,10 @@ def _render_corpus_manifest(engine: DenseSearchEngine | BM25SearchEngine) -> Non
         if key in seen:
             continue
         seen.add(key)
-        identity = passage.file_name
+        evaluation_id = passage.document_id or passage.source_id
+        identity = f"{passage.file_name} · evaluation ID {evaluation_id}"
         if passage.document_id is not None:
-            identity += f" · document {passage.document_id}"
+            identity += " · JSONL document_id"
         if passage.title:
             identity += f" · {passage.title}"
         entries.append(identity)
@@ -319,6 +328,7 @@ def _render_corpus_section(
         st.session_state.pop("corpus_passages", None)
         st.session_state.pop("search_response", None)
         st.session_state.pop("dense_reindex_required", None)
+        st.session_state.pop("evaluation_result", None)
         st.session_state["uploader_nonce"] = nonce + 1
         st.rerun()
 
@@ -353,6 +363,7 @@ def _render_corpus_section(
                 st.session_state["bm25_engine"] = prepared.bm25_engine
                 st.session_state["corpus_passages"] = prepared.passage_records
                 st.session_state["search_response"] = None
+                st.session_state.pop("evaluation_result", None)
                 st.session_state["corpus_summary"] = {
                     "files": prepared.files,
                     "documents": prepared.documents,
@@ -413,6 +424,7 @@ def _render_corpus_section(
                     st.session_state["engine"] = dense_engine
                     st.session_state["hybrid_engine"] = hybrid_engine
                     st.session_state["search_response"] = None
+                    st.session_state.pop("evaluation_result", None)
                     st.session_state["dense_reindex_required"] = False
                     summary = dict(st.session_state.get("corpus_summary", {}))
                     summary.update(
@@ -560,6 +572,174 @@ def _render_search_section(
             st.error("Retrieval could not be completed with the selected pipeline.")
 
 
+def _evaluation_signature(
+    engine: object,
+    pipeline: str,
+    reranker_choice: str,
+    reranker_model_id: str | None,
+    query_bytes: bytes,
+    qrels_bytes: bytes,
+) -> tuple[object, ...]:
+    return (
+        id(engine),
+        pipeline,
+        reranker_choice,
+        reranker_model_id if reranker_choice == "Cross-Encoder" else None,
+        hashlib.sha256(query_bytes).hexdigest(),
+        hashlib.sha256(qrels_bytes).hexdigest(),
+    )
+
+
+def _render_evaluation_section(
+    *,
+    reranker_model_id: str | None,
+    reranker_error: str | None,
+) -> None:
+    """Render a separate evaluation workflow over the current search configuration."""
+
+    pipeline = st.session_state.get("retrieval_pipeline", "Dense")
+    reranker_choice = st.session_state.get("reranker", "Off")
+    engines = {
+        "Dense": st.session_state.get("engine"),
+        "BM25": st.session_state.get("bm25_engine"),
+        "Hybrid": st.session_state.get("hybrid_engine"),
+    }
+    engine = engines[pipeline]
+    engine_ready = engine is not None and engine.is_indexed
+    reranker_ready = reranker_choice == "Off" or reranker_model_id is not None
+
+    with st.container(border=True, key="evaluation_workspace"):
+        st.markdown(
+            """
+            <div class="evaluation-heading">
+                <div>
+                    <h2>Evaluate retrieval</h2>
+                    <p>Measure the active pipeline against labeled document relevance.</p>
+                </div>
+                <span>DOCUMENT LEVEL</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        reranker_label = reranker_choice
+        if reranker_choice == "Cross-Encoder" and reranker_model_id:
+            reranker_label = f"Cross-Encoder · {reranker_model_id}"
+        st.caption(f"Active configuration: {pipeline} · Reranker {reranker_label}")
+
+        query_column, qrels_column = st.columns(2)
+        query_upload = query_column.file_uploader(
+            "Query JSONL",
+            type=["jsonl"],
+            accept_multiple_files=False,
+            key="evaluation_queries",
+            help="One UTF-8 JSON object per line with _id and text fields.",
+        )
+        qrels_upload = qrels_column.file_uploader(
+            "Qrels TSV",
+            type=["tsv", "txt"],
+            accept_multiple_files=False,
+            key="evaluation_qrels",
+            help="Three tab-separated fields: query-id, corpus-id, and non-negative score.",
+        )
+
+        with st.expander("File formats and active document IDs"):
+            st.markdown("**Queries · JSONL**")
+            st.code('{"_id": "q1", "text": "example query"}', language="json")
+            st.markdown("**Relevance judgments · TSV**")
+            st.code("query-id\tcorpus-id\tscore\nq1\tdoc-17\t1", language="text")
+            st.caption(
+                "The header is optional. Scores greater than 0 are relevant; graded scores are "
+                "used by NDCG. JSONL corpora use document_id. PDF, DOCX, and TXT corpora use "
+                "the stable source_id shown below."
+            )
+            if engine_ready:
+                identities = sorted(corpus_document_ids(engine.passages))
+                st.code("\n".join(identities[:50]), language="text")
+                if len(identities) > 50:
+                    st.caption(f"Showing 50 of {len(identities):,} active evaluation IDs.")
+            else:
+                st.info("Index a corpus to see its evaluation IDs.")
+
+        can_run = bool(
+            engine_ready and reranker_ready and query_upload is not None and qrels_upload is not None
+        )
+        run_evaluation = st.button(
+            "Run evaluation",
+            type="primary",
+            disabled=not can_run,
+            width="stretch",
+            key="run_evaluation",
+        )
+        if not engine_ready:
+            st.info(f"Index the required corpus data before evaluating the {pipeline} pipeline.")
+        elif not reranker_ready:
+            st.error(reranker_error or "Choose a valid reranker model, or select Off.")
+        elif query_upload is None or qrels_upload is None:
+            st.caption("Add both evaluation files to enable the run.")
+
+        signature: tuple[object, ...] | None = None
+        query_bytes = b""
+        qrels_bytes = b""
+        if query_upload is not None and qrels_upload is not None and engine is not None:
+            query_bytes = query_upload.getvalue()
+            qrels_bytes = qrels_upload.getvalue()
+            signature = _evaluation_signature(
+                engine,
+                pipeline,
+                reranker_choice,
+                reranker_model_id,
+                query_bytes,
+                qrels_bytes,
+            )
+
+        if run_evaluation:
+            assert engine is not None and query_upload is not None and qrels_upload is not None
+            try:
+                queries = parse_query_jsonl(query_bytes, file_name=query_upload.name)
+                qrels = parse_qrels_tsv(qrels_bytes, file_name=qrels_upload.name)
+                reranker = None
+                if reranker_choice == "Cross-Encoder":
+                    assert reranker_model_id is not None
+                    reranker = get_cross_encoder_reranker(
+                        reranker_model_id,
+                        detect_preferred_device(),
+                    )
+                with st.status("Evaluating the active retrieval pipeline…", expanded=True) as status:
+                    def update_progress(index: int, total: int, _query_record: object) -> None:
+                        status.update(label=f"Evaluating query {index:,} of {total:,}…")
+
+                    report = EvaluationService(engine, reranker).evaluate(
+                        queries,
+                        qrels,
+                        progress=update_progress,
+                    )
+                    status.update(
+                        label=f"Evaluation complete · {report.evaluated_queries:,} queries",
+                        state="complete",
+                        expanded=False,
+                    )
+                st.session_state["evaluation_result"] = {
+                    "signature": signature,
+                    "report": report,
+                }
+            except EvaluationDataError as exc:
+                st.session_state.pop("evaluation_result", None)
+                st.error("Evaluation files could not be validated.")
+                st.text(str(exc))
+            except RerankerUnavailableError as exc:
+                st.session_state.pop("evaluation_result", None)
+                st.error("Cross-Encoder reranking is unavailable for this evaluation.")
+                st.caption(str(exc))
+            except (ValueError, RuntimeError):
+                st.session_state.pop("evaluation_result", None)
+                LOGGER.exception("Evaluation failed")
+                st.error("Evaluation could not be completed with the active configuration.")
+
+        stored_result = st.session_state.get("evaluation_result")
+        if stored_result and stored_result.get("signature") == signature:
+            render_evaluation_report(stored_result["report"])
+
+
 def main() -> None:
     """Render the complete local retrieval application."""
 
@@ -611,6 +791,10 @@ def main() -> None:
     response = st.session_state.get("search_response")
     if response is not None:
         render_results(response, config=config)
+    _render_evaluation_section(
+        reranker_model_id=reranker_model_id,
+        reranker_error=reranker_error,
+    )
     render_about_method()
 
 
