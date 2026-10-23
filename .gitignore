@@ -1,0 +1,44 @@
+# Private research
+references/
+checkpoints/
+private/
+
+# Model files
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Generated/local data
+model_cache/
+uploaded_data/
+uploads/
+local_data/
+embeddings/
+artifacts/
+*.npy
+*.npz
+*.faiss
+*.index
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local design tooling
+.impeccable/

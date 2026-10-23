@@ -1,0 +1,7 @@
+{
+  "profile_name": "RetrievalLab Local",
+  "model_id": "Snowflake/snowflake-arctic-embed-s",
+  "embedding_dimension": 384,
+  "candidate_depth": 100,
+  "top_results": 10
+}

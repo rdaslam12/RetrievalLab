@@ -1,0 +1,4 @@
+Dense retrieval maps queries and technical passages into a shared vector space. With unit-normalized embeddings, inner product is equivalent to cosine similarity. An exact index compares the query with every stored passage and is practical for small collections.
+
+Hybrid retrieval can combine independent semantic and lexical rankings. Reciprocal Rank Fusion rewards passages that appear near the top of either branch while preserving each branch's original rank and score for inspection.
+

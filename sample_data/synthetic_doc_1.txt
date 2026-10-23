@@ -1,0 +1,4 @@
+Distributed sensor networks collect measurements from devices with limited energy budgets. A common design batches local observations before transmission, reducing radio use at the cost of additional latency. Adaptive schedules can change the batch interval when the measured signal becomes volatile.
+
+Evaluation should report both end-to-end latency and energy consumed per delivered measurement. A protocol that saves energy only by dropping difficult measurements may appear efficient while reducing scientific usefulness.
+

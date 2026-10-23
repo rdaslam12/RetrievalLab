@@ -1,0 +1,4 @@
+A thermal control experiment uses a proportional-integral controller to regulate a small chamber. The proportional term reacts to current error, while the integral term accumulates past error and can eliminate a persistent offset. Excessive integral gain can cause overshoot and windup.
+
+Reproducible testing records ambient temperature, sampling frequency, actuator limits, and calibration procedure. Reported controller performance may not transfer to a chamber with substantially different thermal mass.
+

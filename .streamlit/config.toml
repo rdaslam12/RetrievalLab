@@ -1,0 +1,14 @@
+[server]
+maxUploadSize = 50
+headless = true
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#8AB4F8"
+backgroundColor = "#090B11"
+secondaryBackgroundColor = "#151923"
+textColor = "#F0F2F8"
