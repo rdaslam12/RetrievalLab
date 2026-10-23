@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from functools import lru_cache
 import logging
+import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -42,6 +43,21 @@ class CrossEncoderLike(Protocol):
     ) -> object: ...
 
 
+def _cross_encoder_model_kwargs(device: str) -> dict[str, object]:
+    """Use float64 for stable CPU inference on macOS arm64, trading memory and speed."""
+
+    is_apple_silicon_cpu = (
+        platform.system() == "Darwin"
+        and platform.machine().casefold() in {"arm64", "aarch64"}
+        and device.casefold().split(":", 1)[0] == "cpu"
+    )
+    if not is_apple_silicon_cpu:
+        return {}
+    import torch
+
+    return {"dtype": torch.float64}
+
+
 @lru_cache(maxsize=4)
 def _load_cached_cross_encoder(
     model_id: str,
@@ -62,12 +78,17 @@ def _load_cached_cross_encoder(
     local_files_only = repo_cache.is_dir() and any(repo_cache.iterdir())
 
     def build(target_device: str) -> CrossEncoderLike:
+        load_kwargs: dict[str, object] = {}
+        model_kwargs = _cross_encoder_model_kwargs(target_device)
+        if model_kwargs:
+            load_kwargs["model_kwargs"] = model_kwargs
         model = CrossEncoder(
             model_id,
             device=target_device,
             cache_folder=cache_folder,
             local_files_only=local_files_only,
             trust_remote_code=False,
+            **load_kwargs,
         )
         model.eval()
         return model
@@ -195,10 +216,14 @@ class CrossEncoderReranker:
                 raise RerankerUnavailableError(
                     f"Reranker {self.model_id} could not score the retrieved candidates."
                 ) from exc
-            LOGGER.warning("Cross-encoder execution failed on MPS; moving to CPU", exc_info=True)
+            LOGGER.warning("Cross-encoder execution failed on MPS; reloading on CPU", exc_info=True)
             try:
-                model.to("cpu")
-                self.device = "cpu"
+                self._model, self.device = _load_cached_cross_encoder(
+                    self.model_id,
+                    "cpu",
+                    str(self.cache_folder),
+                )
+                model = self._model
                 predictions = self._predict(model, pairs)
             except Exception as cpu_exc:
                 raise RerankerUnavailableError(

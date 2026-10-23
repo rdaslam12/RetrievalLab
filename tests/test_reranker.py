@@ -7,7 +7,12 @@ import pytest
 
 from src.bm25_retriever import BM25SearchEngine
 from src.hybrid_retriever import HybridSearchEngine
-from src.reranker import CrossEncoderReranker, rerank_candidates
+from src.reranker import (
+    CrossEncoderReranker,
+    RerankerUnavailableError,
+    _load_cached_cross_encoder,
+    rerank_candidates,
+)
 from src.search_engine import DenseSearchEngine
 from src.services import SearchService
 from src.types import Passage, RankedPassage
@@ -166,13 +171,16 @@ def test_reranked_repeated_searches_do_not_rebuild_corpus_embeddings() -> None:
 
 
 class _FakeCrossEncoder:
-    def __init__(self) -> None:
+    def __init__(self, predictions: Sequence[float] | None = None) -> None:
         self.predict_calls = 0
+        self.predictions = predictions
+        self.to_calls: list[str] = []
 
     def eval(self) -> object:
         return self
 
     def to(self, device: str) -> object:
+        self.to_calls.append(device)
         return self
 
     def predict(
@@ -184,7 +192,106 @@ class _FakeCrossEncoder:
         convert_to_numpy: bool,
     ) -> np.ndarray:
         self.predict_calls += 1
+        if self.predictions is not None:
+            return np.asarray(self.predictions, dtype=np.float64)
         return np.arange(len(inputs), dtype=np.float32)
+
+
+@pytest.fixture
+def clear_cross_encoder_cache() -> None:
+    _load_cached_cross_encoder.cache_clear()
+    yield
+    _load_cached_cross_encoder.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "device", "expects_float64"),
+    [
+        pytest.param("Darwin", "arm64", "cpu", True, id="macos-arm64-cpu"),
+        pytest.param("Darwin", "arm64", "mps", False, id="macos-arm64-mps"),
+        pytest.param("Linux", "aarch64", "cpu", False, id="linux-arm64-cpu"),
+        pytest.param("Darwin", "arm64", "cuda", False, id="cuda"),
+    ],
+)
+def test_cross_encoder_float64_is_limited_to_macos_arm64_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    clear_cross_encoder_cache: None,
+    system: str,
+    machine: str,
+    device: str,
+    expects_float64: bool,
+) -> None:
+    import torch
+
+    calls: list[dict[str, object]] = []
+
+    class RecordingCrossEncoder(_FakeCrossEncoder):
+        def __init__(self, _model_id: str, **kwargs: object) -> None:
+            super().__init__()
+            calls.append(kwargs)
+
+    monkeypatch.setattr("src.reranker.platform.system", lambda: system)
+    monkeypatch.setattr("src.reranker.platform.machine", lambda: machine)
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", RecordingCrossEncoder)
+
+    _load_cached_cross_encoder("organization/model", device, str(tmp_path))
+
+    assert len(calls) == 1
+    if expects_float64:
+        assert calls[0]["model_kwargs"] == {"dtype": torch.float64}
+    else:
+        assert "model_kwargs" not in calls[0]
+
+
+def test_mps_runtime_fallback_reloads_cached_cpu_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mps_model = _FakeCrossEncoder()
+    cpu_model = _FakeCrossEncoder([0.8, 0.2])
+    loads: list[str] = []
+
+    def fake_loader(
+        _model_id: str, device: str, _cache_folder: str
+    ) -> tuple[_FakeCrossEncoder, str]:
+        loads.append(device)
+        return (mps_model if device == "mps" else cpu_model), device
+
+    def predict(model: _FakeCrossEncoder, pairs: list[tuple[str, str]]) -> object:
+        if model is mps_model:
+            raise RuntimeError("simulated MPS execution failure")
+        return model.predict(
+            pairs,
+            batch_size=32,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+
+    monkeypatch.setattr("src.reranker._load_cached_cross_encoder", fake_loader)
+    reranker = CrossEncoderReranker(device="mps")
+    monkeypatch.setattr(reranker, "_predict", predict)
+
+    assert reranker.score("query", ["first", "second"]).tolist() == [0.8, 0.2]
+    assert loads == ["mps", "cpu"]
+    assert mps_model.to_calls == []
+    assert reranker.device == "cpu"
+    assert reranker._model is cpu_model
+
+    reranker.score("query", ["first", "second"])
+    assert loads == ["mps", "cpu"]
+
+
+def test_cross_encoder_still_rejects_non_finite_scores(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _FakeCrossEncoder([float("nan")])
+    monkeypatch.setattr(
+        "src.reranker._load_cached_cross_encoder",
+        lambda model_id, device, cache_folder: (model, device),
+    )
+
+    with pytest.raises(RerankerUnavailableError, match="invalid scores"):
+        CrossEncoderReranker(device="cpu").score("query", ["passage"])
 
 
 def test_cross_encoder_model_loading_is_lazy_and_cached(monkeypatch: pytest.MonkeyPatch) -> None:

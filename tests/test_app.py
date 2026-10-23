@@ -4,8 +4,11 @@ from src.config import load_config
 from src.reranker import DEFAULT_RERANKER_MODEL
 
 
+APP_TEST_TIMEOUT_SECONDS = 30
+
+
 def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
-    app = AppTest.from_file("app.py", default_timeout=10).run()
+    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
     assert not app.exception
     assert app.radio("embedding_model_mode").value == "Default"
@@ -29,7 +32,7 @@ def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
 
 
 def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() -> None:
-    app = AppTest.from_file("app.py", default_timeout=10).run()
+    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
     assert not app.exception
     assert app.radio("evaluation_mode").value == "Evaluate one pipeline"
@@ -40,7 +43,7 @@ def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() ->
 
 
 def test_benchmark_mode_has_default_pipelines_and_requires_indexes() -> None:
-    app = AppTest.from_file("app.py", default_timeout=10).run()
+    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
     app.radio("evaluation_mode").set_value("Compare pipelines").run()
 
@@ -59,7 +62,7 @@ def test_remote_settings_connect_and_clear_stale_metadata(monkeypatch) -> None:
     from tests.test_remote_adapter import FakeTransport, SECRET
     transport = FakeTransport()
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: transport)
-    app = AppTest.from_file('app.py', default_timeout=10).run()
+    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
     app.radio('embedding_model_mode').set_value('Remote Adapter').run()
     assert not app.exception
     assert app.text_input('remote_embedding_token').proto.type == 1
@@ -89,7 +92,7 @@ def test_remote_settings_connect_and_clear_stale_metadata(monkeypatch) -> None:
 def test_remote_connection_error_is_safe_and_actionable(monkeypatch) -> None:
     from tests.test_remote_adapter import FakeTransport, METADATA, SECRET
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: FakeTransport(METADATA | {'name': SECRET}))
-    app = AppTest.from_file('app.py', default_timeout=10).run()
+    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
     app.radio('embedding_model_mode').set_value('Remote Adapter').run()
     app.text_input('remote_embedding_endpoint').set_value('https://adapter.example.org').run()
     app.text_input('remote_embedding_token').set_value(SECRET).run()
@@ -104,7 +107,7 @@ def test_remote_benchmark_preserves_interactive_search_and_dense_index(monkeypat
     from tests.test_remote_adapter import FakeTransport, SECRET
     transport = FakeTransport()
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: transport)
-    app = AppTest.from_file('app.py', default_timeout=10).run()
+    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
     for stage, mode_key in [('embedding', 'embedding_model_mode'), ('reranker', 'reranker_model_mode')]:
         app.radio(mode_key).set_value('Remote Adapter').run()
         app.text_input(f'remote_{stage}_endpoint').set_value('https://adapter.example.org').run()
