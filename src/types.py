@@ -53,7 +53,12 @@ class VectorHit:
 
 @dataclass(frozen=True, slots=True)
 class RankedPassage:
-    """A ranked passage with optional hybrid branch provenance."""
+    """A ranked passage with retrieval and optional reranking provenance.
+
+    ``rank`` is the displayed/final rank and ``score`` remains the first-stage
+    retrieval score for backwards compatibility. Reranked results additionally
+    carry the unambiguous first-stage fields below.
+    """
 
     passage: Passage
     rank: int
@@ -63,6 +68,10 @@ class RankedPassage:
     dense_score: float | None = None
     bm25_rank: int | None = None
     bm25_score: float | None = None
+    retrieval_rank: int | None = None
+    retrieval_score: float | None = None
+    reranker_score: float | None = None
+    rank_change: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,3 +85,6 @@ class SearchResponse:
     index_backend: str
     device: str
     retrieval_method: str
+    reranking_used: bool = False
+    reranker_name: str | None = None
+    reranking_latency_ms: float = 0.0

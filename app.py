@@ -11,6 +11,11 @@ import streamlit as st
 from src.config import AppConfig, load_config
 from src.document_parser import DocumentValidationError
 from src.embedder import ArcticEmbedder, detect_preferred_device
+from src.reranker import (
+    DEFAULT_RERANKER_MODEL,
+    CrossEncoderReranker,
+    RerankerUnavailableError,
+)
 from src.search_engine import DenseSearchEngine
 from src.services import CorpusService, SearchService
 from src.ui_components import render_about_method, render_results
@@ -25,6 +30,7 @@ PIPELINES = {
     "BM25": "Lexical retrieval using raw Okapi BM25 scores.",
     "Hybrid": "Dense and BM25 rankings combined with Reciprocal Rank Fusion.",
 }
+RERANKERS = ("Off", "Cross-Encoder")
 
 
 @st.cache_resource(show_spinner=False)
@@ -32,6 +38,13 @@ def get_embedder(model_id: str, dimension: int) -> ArcticEmbedder:
     """Load Arctic-S once per Streamlit server process."""
 
     return ArcticEmbedder(model_id, dimension)
+
+
+@st.cache_resource(show_spinner=False)
+def get_cross_encoder_reranker(model_id: str, device: str) -> CrossEncoderReranker:
+    """Create one lazy reranker resource per model and preferred device."""
+
+    return CrossEncoderReranker(model_id, device=device)
 
 
 def _sidebar(config: AppConfig, preferred_device: str) -> None:
@@ -42,16 +55,12 @@ def _sidebar(config: AppConfig, preferred_device: str) -> None:
         st.markdown(
             """
             <div class="app-brand">
-                <svg class="app-brand__mark" viewBox="0 0 40 40" role="img" aria-label="RetrievalLab">
-                    <path d="M20 3C21.7 13.5 26.5 18.3 37 20C26.5 21.7 21.7 26.5 20 37C18.3 26.5 13.5 21.7 3 20C13.5 18.3 18.3 13.5 20 3Z" fill="url(#brand-spectrum)"/>
-                    <defs>
-                        <linearGradient id="brand-spectrum" x1="7" y1="7" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#8AB4F8"/>
-                            <stop offset="0.45" stop-color="#A78BFA"/>
-                            <stop offset="0.72" stop-color="#67E8F9"/>
-                            <stop offset="1" stop-color="#F6C977"/>
-                        </linearGradient>
-                    </defs>
+                <svg class="app-brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect x="3.5" y="3.5" width="33" height="33" rx="10"/>
+                    <circle cx="12" cy="13" r="2"/>
+                    <circle cx="12" cy="20" r="2"/>
+                    <circle cx="12" cy="27" r="2"/>
+                    <path d="M17 13h12M17 20h9M17 27h6"/>
                 </svg>
                 <div>
                     <strong>RetrievalLab</strong>
@@ -70,6 +79,7 @@ def _sidebar(config: AppConfig, preferred_device: str) -> None:
         with st.expander("Advanced details"):
             st.markdown(f"**Profile**  \n{config.profile_name}")
             st.markdown(f"**Dense encoder**  \n{config.model_id}")
+            st.markdown(f"**Public reranker**  \n{DEFAULT_RERANKER_MODEL}")
             st.markdown(f"**Embedding dimension**  \n{config.embedding_dimension}")
             st.markdown(f"**Candidate depth**  \n{config.candidate_depth}")
             st.markdown(f"**Final results**  \n{config.top_results}")
@@ -115,8 +125,18 @@ def _render_corpus_manifest(engine: DenseSearchEngine) -> None:
 
 
 def _render_corpus_section(config: AppConfig) -> None:
-    st.markdown('<p class="sidebar-label corpus-label">Knowledge base</p>', unsafe_allow_html=True)
-    st.caption("Prepare one session-local corpus for every retrieval pipeline.")
+    st.markdown(
+        """
+        <div class="corpus-heading">
+            <div>
+                <h2>Build your retrieval corpus</h2>
+                <p>Prepare one session-local knowledge base for every retrieval pipeline.</p>
+            </div>
+            <span>PDF · DOCX · TXT · JSONL</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     nonce = st.session_state.setdefault("uploader_nonce", 0)
     uploads = st.file_uploader(
         "Add scientific or technical documents",
@@ -251,7 +271,22 @@ def _render_corpus_section(config: AppConfig) -> None:
 
 
 def _render_search_section() -> None:
-    pipeline = st.radio("Retrieval pipeline", list(PIPELINES), horizontal=True)
+    st.markdown(
+        """
+        <div class="search-section-heading">
+            <h2>Search the corpus</h2>
+            <p>Choose how the evidence should be ranked.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<p class="selector-label">Base retrieval</p>', unsafe_allow_html=True)
+    pipeline = st.radio(
+        "Base retrieval",
+        list(PIPELINES),
+        horizontal=True,
+        key="retrieval_pipeline",
+    )
     engines = {
         "Dense": st.session_state.get("engine"),
         "BM25": st.session_state.get("bm25_engine"),
@@ -263,20 +298,47 @@ def _render_search_section() -> None:
         f'<p class="pipeline-description">{PIPELINES[pipeline]}</p>',
         unsafe_allow_html=True,
     )
+    st.markdown('<p class="selector-label">Reranker</p>', unsafe_allow_html=True)
+    reranker_choice = st.radio(
+        "Reranker",
+        RERANKERS,
+        horizontal=True,
+        index=0,
+        key="reranker",
+    )
+    if reranker_choice == "Cross-Encoder":
+        st.markdown(
+            '<p class="reranker-description">Reranks the retrieved candidate set using '
+            f'{DEFAULT_RERANKER_MODEL}.</p>',
+            unsafe_allow_html=True,
+        )
     query = st.chat_input(
         "Ask the active corpus a precise question",
         disabled=not ready,
         key="retrieval_query",
     )
     if not ready:
-        st.caption("Open Corpus controls and index documents to begin.")
+        st.caption("Index documents above to begin.")
     else:
         st.caption("Press Enter or select the send control to retrieve passages.")
 
     if query and query.strip():
         try:
             assert engine is not None
-            st.session_state["search_response"] = SearchService(engine).search(query)
+            reranker = None
+            if reranker_choice == "Cross-Encoder":
+                reranker = get_cross_encoder_reranker(
+                    DEFAULT_RERANKER_MODEL,
+                    detect_preferred_device(),
+                )
+            st.session_state["search_response"] = SearchService(engine, reranker).search(query)
+        except RerankerUnavailableError as exc:
+            LOGGER.exception("Cross-encoder reranking failed")
+            st.error(
+                "Cross-Encoder reranking is unavailable. The base retrieval system is still "
+                "ready; select Off to search without reranking."
+            )
+            st.caption(str(exc))
         except ValueError as exc:
             st.error("Retrieval could not be started.")
             st.text(str(exc))
@@ -303,22 +365,17 @@ def main() -> None:
     config = load_config()
     preferred_device = detect_preferred_device()
     _sidebar(config, preferred_device)
-    with st.sidebar:
-        _render_corpus_section(config)
     st.markdown(
         """
         <section class="search-hero">
-            <div class="hero-orbit" aria-hidden="true"></div>
-            <svg class="hero-mark" viewBox="0 0 48 48" aria-hidden="true">
-                <path d="M24 3C25.9 16.1 31.9 22.1 45 24C31.9 25.9 25.9 31.9 24 45C22.1 31.9 16.1 25.9 3 24C16.1 22.1 22.1 16.1 24 3Z" fill="url(#hero-spectrum)"/>
-                <defs><linearGradient id="hero-spectrum" x1="9" y1="7" x2="39" y2="41"><stop stop-color="#8AB4F8"/><stop offset=".42" stop-color="#A78BFA"/><stop offset=".7" stop-color="#67E8F9"/><stop offset="1" stop-color="#F6C977"/></linearGradient></defs>
-            </svg>
             <h1>What should we discover?</h1>
             <p>A modular workbench for comparing dense, lexical, and hybrid retrieval pipelines.</p>
         </section>
         """,
         unsafe_allow_html=True,
     )
+    with st.container(border=True, key="corpus_workspace"):
+        _render_corpus_section(config)
     _render_search_section()
     response = st.session_state.get("search_response")
     if response is not None:

@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, replace
+from time import perf_counter
+from typing import TYPE_CHECKING, Protocol
 
 from .bm25_retriever import BM25SearchEngine
 from .chunker import TokenizerLike, chunk_sections
 from .config import AppConfig
 from .document_parser import DocumentValidationError, parse_corpus
 from .hybrid_retriever import HybridSearchEngine
-from .interfaces import SearchEngine
+from .reranker import rerank_candidates
 from .search_engine import DenseSearchEngine, EmbedderLike
 from .types import SearchResponse
+
+if TYPE_CHECKING:
+    from .interfaces import Reranker, SearchEngine
 
 
 class CorpusEmbedder(EmbedderLike, Protocol):
@@ -116,10 +120,30 @@ class CorpusService:
 
 
 class SearchService:
-    """Run retrieval without presentation-layer dependencies."""
+    """Run base retrieval and an optional independent reranking stage."""
 
-    def __init__(self, engine: SearchEngine) -> None:
+    def __init__(self, engine: SearchEngine, reranker: Reranker | None = None) -> None:
         self.engine = engine
+        self.reranker = reranker
 
     def search(self, query: str) -> SearchResponse:
-        return self.engine.search(query)
+        if self.reranker is None:
+            return self.engine.search(query)
+
+        total_started = perf_counter()
+        retrieval_response = self.engine.search_candidates(query)
+        reranking_started = perf_counter()
+        reranked = rerank_candidates(
+            retrieval_response.query,
+            retrieval_response.results,
+            self.reranker,
+        )
+        reranking_latency = (perf_counter() - reranking_started) * 1000.0
+        return replace(
+            retrieval_response,
+            results=reranked[: self.engine.top_results],
+            reranking_used=True,
+            reranker_name=self.reranker.name,
+            reranking_latency_ms=reranking_latency,
+            total_query_latency_ms=(perf_counter() - total_started) * 1000.0,
+        )

@@ -106,6 +106,10 @@ class BM25SearchEngine:
     def index_backend(self) -> str:
         return self.retriever.backend
 
+    @property
+    def top_results(self) -> int:
+        return self.config.top_results
+
     def retrieve_candidates(self, query: str) -> tuple[str, list[VectorHit]]:
         """Return the unchanged BM25 first-stage candidate ranking."""
 
@@ -115,7 +119,7 @@ class BM25SearchEngine:
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
         return cleaned_query, self.retriever.search(cleaned_query, candidate_depth)
 
-    def search(self, query: str) -> SearchResponse:
+    def _search(self, query: str, *, result_limit: int) -> SearchResponse:
         cleaned_query = query.strip()
         if not cleaned_query:
             raise ValueError("Enter a non-empty search query.")
@@ -124,12 +128,14 @@ class BM25SearchEngine:
         _, hits = self.retrieve_candidates(cleaned_query)
         retrieval_latency = (perf_counter() - retrieval_started) * 1000.0
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
-        top_count = min(self.config.top_results, len(hits))
+        top_count = min(result_limit, len(hits))
         results = tuple(
             RankedPassage(
                 passage=self.passages[hit.passage_index],
                 rank=hit.rank,
                 score=hit.score,
+                retrieval_rank=hit.rank,
+                retrieval_score=hit.score,
             )
             for hit in hits[:top_count]
         )
@@ -144,3 +150,11 @@ class BM25SearchEngine:
             device="cpu",
             retrieval_method="BM25",
         )
+
+    def search(self, query: str) -> SearchResponse:
+        return self._search(query, result_limit=self.config.top_results)
+
+    def search_candidates(self, query: str) -> SearchResponse:
+        """Return the fixed-depth BM25 candidate set for optional reranking."""
+
+        return self._search(query, result_limit=self.config.candidate_depth)

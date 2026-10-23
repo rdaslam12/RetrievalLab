@@ -65,7 +65,33 @@ def render_result_card(result: RankedPassage, *, method: str) -> None:
             with st.expander("Read full passage"):
                 _literal_block(result.passage.text, class_name="passage-text passage-text-full")
 
-        if method == "BM25":
+        if result.reranker_score is not None:
+            retrieval_rank = result.retrieval_rank or result.rank
+            retrieval_score = (
+                result.retrieval_score if result.retrieval_score is not None else result.score
+            )
+            change = result.rank_change or 0
+            if change > 0:
+                movement = f"Up {change}"
+            elif change < 0:
+                movement = f"Down {abs(change)}"
+            else:
+                movement = "No change"
+            score_label = "Original retrieval score"
+            if method == "Hybrid":
+                score_label = "Original RRF score"
+            elif method == "BM25":
+                score_label = "Original BM25 score"
+            elif method == "Dense":
+                score_label = "Original dense score"
+            stats = [
+                ("Reranker score", f"{result.reranker_score:.5f}"),
+                ("Final rank", f"#{result.rank}"),
+                ("Original retrieval rank", f"#{retrieval_rank}"),
+                ("Movement", movement),
+                (score_label, f"{retrieval_score:.6f}"),
+            ]
+        elif method == "BM25":
             stats = [
                 ("Raw BM25 score", f"{result.score:.5f}"),
                 ("BM25 rank", f"#{result.rank}"),
@@ -116,6 +142,20 @@ def _render_pipeline_details(response: SearchResponse, config: AppConfig, *, met
         details.append(("RRF k", str(DEFAULT_RRF_K)))
     if method == "BM25":
         details.append(("Retriever", "Okapi BM25 lexical retrieval"))
+    details.extend(
+        [
+            ("Reranking", "On" if response.reranking_used else "Off"),
+            ("Retrieval latency", f"{response.retrieval_latency_ms:.1f} ms"),
+        ]
+    )
+    if response.reranking_used:
+        details.extend(
+            [
+                ("Reranker", response.reranker_name or "Cross-Encoder"),
+                ("Reranking latency", f"{response.reranking_latency_ms:.1f} ms"),
+            ]
+        )
+    details.append(("Total query latency", f"{response.total_query_latency_ms:.1f} ms"))
     st.dataframe(
         pd.DataFrame(details, columns=["Setting", "Value"]),
         hide_index=True,
@@ -124,16 +164,27 @@ def _render_pipeline_details(response: SearchResponse, config: AppConfig, *, met
 
 
 def _render_result_summary(response: SearchResponse) -> None:
-    summary = st.columns(3)
-    summary[0].metric("Pipeline", response.retrieval_method)
-    summary[1].metric("Results returned", len(response.results))
-    summary[2].metric("Total query", f"{response.total_query_latency_ms:.1f} ms")
-    if response.retrieval_method == "Hybrid":
+    if response.reranking_used:
+        summary = st.columns(4)
+        summary[0].metric("Base retrieval", response.retrieval_method)
+        summary[1].metric("Reranker", "Cross-Encoder")
+        summary[2].metric("Results returned", len(response.results))
+        summary[3].metric("Total query", f"{response.total_query_latency_ms:.1f} ms")
+        st.caption(
+            f"Retrieval: {response.retrieval_latency_ms:.1f} ms · "
+            f"Reranking: {response.reranking_latency_ms:.1f} ms"
+        )
+    else:
+        summary = st.columns(3)
+        summary[0].metric("Pipeline", response.retrieval_method)
+        summary[1].metric("Results returned", len(response.results))
+        summary[2].metric("Total query", f"{response.total_query_latency_ms:.1f} ms")
+    if not response.reranking_used and response.retrieval_method == "Hybrid":
         st.caption(
             "Aggregate Dense + BM25 retrieval and fusion: "
             f"{response.retrieval_latency_ms:.1f} ms"
         )
-    else:
+    elif not response.reranking_used:
         st.caption(f"Retrieval latency: {response.retrieval_latency_ms:.1f} ms")
 
 
@@ -149,7 +200,12 @@ def render_results(response: SearchResponse, *, config: AppConfig) -> None:
     with st.expander("Pipeline details"):
         _render_pipeline_details(response, config, method=method)
 
-    if method == "BM25":
+    if response.reranking_used:
+        st.caption(
+            "Reranker scores and original retrieval scores are separate raw quantities; "
+            "neither is a probability or confidence value."
+        )
+    elif method == "BM25":
         st.caption("BM25 values are raw lexical retrieval scores, not probabilities or confidence.")
     elif method == "Hybrid":
         st.caption("RRF combines branch ranks; its scores are not probabilities or normalized raw scores.")
@@ -166,6 +222,8 @@ def render_about_method() -> None:
             **BM25** retrieves by lexical term evidence and preserves its raw Okapi BM25 score.
 
             **Hybrid** combines the independent Dense and BM25 candidate rankings with Reciprocal Rank Fusion.
+
+            **Cross-Encoder** optionally reranks only the fixed candidate set returned by the selected base pipeline.
             """
         )
         st.info(

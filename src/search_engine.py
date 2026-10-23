@@ -71,6 +71,10 @@ class DenseSearchEngine:
     def index_backend(self) -> str:
         return self.vector_index.backend if self.vector_index is not None else "Not indexed"
 
+    @property
+    def top_results(self) -> int:
+        return self.config.top_results
+
     def index_passages(self, passages: Sequence[Passage]) -> None:
         """Build replacement state locally and install it only after complete success."""
 
@@ -107,19 +111,19 @@ class DenseSearchEngine:
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
         return cleaned_query, query_vector, self.vector_index.search(query_vector, candidate_depth)
 
-    def search(self, query: str) -> SearchResponse:
-        """Retrieve and return the configured number of dense results."""
-
+    def _search(self, query: str, *, result_limit: int) -> SearchResponse:
         total_started = perf_counter()
         retrieval_started = perf_counter()
         cleaned_query, _, hits = self.retrieve_candidates(query)
         retrieval_latency = (perf_counter() - retrieval_started) * 1000.0
-        top_count = min(self.config.top_results, len(hits))
+        top_count = min(result_limit, len(hits))
         results = tuple(
             RankedPassage(
                 passage=self.passages[hit.passage_index],
                 rank=hit.rank,
                 score=hit.score,
+                retrieval_rank=hit.rank,
+                retrieval_score=hit.score,
             )
             for hit in hits[:top_count]
         )
@@ -134,3 +138,13 @@ class DenseSearchEngine:
             device=str(self.embedder.device),
             retrieval_method="Dense",
         )
+
+    def search(self, query: str) -> SearchResponse:
+        """Retrieve and return the configured number of dense results."""
+
+        return self._search(query, result_limit=self.config.top_results)
+
+    def search_candidates(self, query: str) -> SearchResponse:
+        """Return the fixed-depth dense candidate set for optional reranking."""
+
+        return self._search(query, result_limit=self.config.candidate_depth)

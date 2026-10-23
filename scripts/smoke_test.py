@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 from src.services import CorpusService, SearchService  # noqa: E402
 from src.config import load_config  # noqa: E402
+from src.types import RankedPassage  # noqa: E402
 
 
 class SmokeTokenizer:
@@ -68,6 +69,13 @@ class DeterministicSmokeEmbedder:
         return self._vector(query)
 
 
+class DeterministicSmokeReranker:
+    name = "smoke/deterministic-reranker"
+
+    def score(self, query: str, candidates: Sequence[RankedPassage]) -> list[float]:
+        return [float(len(candidate.passage.text)) for candidate in candidates]
+
+
 def main() -> None:
     config = load_config()
     use_real_model = os.getenv("RUN_MODEL_SMOKE") == "1"
@@ -91,11 +99,19 @@ def main() -> None:
     dense = SearchService(prepared.engine).search("dense embeddings retrieve passages")
     lexical = SearchService(prepared.bm25_engine).search("dense embeddings")
     hybrid = SearchService(prepared.hybrid_engine).search("dense embeddings")
+    reranker = DeterministicSmokeReranker()
+    reranked = (
+        SearchService(prepared.engine, reranker).search("dense embeddings"),
+        SearchService(prepared.bm25_engine, reranker).search("dense embeddings"),
+        SearchService(prepared.hybrid_engine, reranker).search("dense embeddings"),
+    )
     if not any(passage.document_id == "jsonl-dense" for passage in prepared.engine.passages):
         raise RuntimeError("JSONL document identity was not preserved during chunking")
     for name, response in (("dense", dense), ("bm25", lexical), ("hybrid", hybrid)):
         if not response.results:
             raise RuntimeError(f"{name} retrieval returned no results")
+    if not all(response.reranking_used and response.results for response in reranked):
+        raise RuntimeError("One or more public pipelines failed deterministic reranking")
     if not any(result.passage.document_id == "jsonl-dense" for result in lexical.results):
         raise RuntimeError("JSONL document was not returned by lexical retrieval")
     if not any(result.passage.document_id == "jsonl-dense" for result in hybrid.results):
@@ -106,6 +122,7 @@ def main() -> None:
         f"passages={prepared.passages}",
         f"dense_backend={dense.index_backend}",
         "pipelines=dense,bm25,hybrid",
+        "reranking=passed",
     )
 
 

@@ -100,7 +100,11 @@ class HybridSearchEngine:
     def index_backend(self) -> str:
         return f"RRF(k={self.rrf_k}) over dense + BM25"
 
-    def search(self, query: str) -> SearchResponse:
+    @property
+    def top_results(self) -> int:
+        return self.config.top_results
+
+    def _search(self, query: str, *, result_limit: int) -> SearchResponse:
         cleaned_query = query.strip()
         if not cleaned_query:
             raise ValueError("Enter a non-empty search query.")
@@ -115,16 +119,39 @@ class HybridSearchEngine:
             rrf_k=self.rrf_k,
         )
         retrieval_latency = (perf_counter() - retrieval_started) * 1000.0
-        top_count = min(self.config.top_results, len(fused))
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
+        candidates = fused[:candidate_depth]
+        top_count = min(result_limit, len(candidates))
         return SearchResponse(
             query=cleaned_query,
             candidate_depth_used=candidate_depth,
             indexed_passages=len(self.passages),
-            results=fused[:top_count],
+            results=tuple(
+                RankedPassage(
+                    passage=result.passage,
+                    rank=result.rank,
+                    score=result.score,
+                    rrf_score=result.rrf_score,
+                    dense_rank=result.dense_rank,
+                    dense_score=result.dense_score,
+                    bm25_rank=result.bm25_rank,
+                    bm25_score=result.bm25_score,
+                    retrieval_rank=result.rank,
+                    retrieval_score=result.score,
+                )
+                for result in candidates[:top_count]
+            ),
             retrieval_latency_ms=retrieval_latency,
             total_query_latency_ms=(perf_counter() - total_started) * 1000.0,
             index_backend=self.index_backend,
             device=str(self.dense_engine.embedder.device),
             retrieval_method="Hybrid",
         )
+
+    def search(self, query: str) -> SearchResponse:
+        return self._search(query, result_limit=self.config.top_results)
+
+    def search_candidates(self, query: str) -> SearchResponse:
+        """Return the fixed-depth fused candidate set for optional reranking."""
+
+        return self._search(query, result_limit=self.config.candidate_depth)

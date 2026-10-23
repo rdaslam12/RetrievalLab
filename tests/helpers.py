@@ -8,6 +8,7 @@ from dataclasses import replace
 import numpy as np
 
 from src.config import AppConfig, load_config
+from src.types import RankedPassage
 
 
 class WhitespaceTokenizer:
@@ -55,6 +56,28 @@ class FakeEmbedder:
     def encode_query(self, query: str) -> np.ndarray:
         self.query_calls += 1
         return self.query_vector.copy()
+
+
+class FakeReranker:
+    """Deterministic score-only reranker that records its complete input set."""
+
+    name = "fake/deterministic-reranker"
+
+    def __init__(self, scores: Sequence[float] | None = None) -> None:
+        self.scores = tuple(scores) if scores is not None else None
+        self.calls = 0
+        self.queries: list[str] = []
+        self.candidate_ids: list[tuple[str, ...]] = []
+
+    def score(self, query: str, candidates: Sequence[RankedPassage]) -> Sequence[float]:
+        self.calls += 1
+        self.queries.append(query)
+        self.candidate_ids.append(tuple(item.passage.chunk_id for item in candidates))
+        if self.scores is not None:
+            if len(self.scores) != len(candidates):
+                raise ValueError("Fake score count does not match candidates")
+            return self.scores
+        return tuple(float(index) for index in range(len(candidates)))
 
 
 def make_test_config(**changes: object) -> AppConfig:
