@@ -201,6 +201,20 @@ class SentenceTransformerEmbedder:
                 ) from cpu_exc
         return _normalize_and_validate(np.asarray(output), self.dimension)
 
+    @property
+    def name(self) -> str:
+        return self.model_id
+
+    @property
+    def similarity(self) -> str:
+        return "cosine"
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        return self._encode(texts, is_query=True)
+
+    def encode_documents(self, texts: list[str]) -> np.ndarray:
+        return self._encode(texts, is_query=False)
+
     def encode_passages(self, texts: Sequence[str]) -> np.ndarray:
         """Encode passages with the selected model's document/default behavior."""
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from .model_ids import validate_huggingface_model_id
 from .search_engine import DenseSearchEngine
+from .interfaces import adapter_model_id
 
 
 def resolve_model_choice(
@@ -20,7 +21,7 @@ def resolve_model_choice(
 
     if mode == "Default":
         return default_model_id
-    if mode != "Custom":
+    if mode not in ("Custom", "Hugging Face"):
         raise ValueError(f"Unsupported {kind} model selection: {mode}")
     return validate_huggingface_model_id(custom_model_id, kind=kind)
 
@@ -34,7 +35,7 @@ def invalidate_dense_indexes_for_model(
     engine = state.get("engine")
     if not isinstance(engine, DenseSearchEngine):
         return False
-    active_model_id = getattr(engine.embedder, "model_id", None)
+    active_model_id = adapter_model_id(engine.embedder)
     if active_model_id == selected_model_id:
         return False
     state.pop("engine", None)

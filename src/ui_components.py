@@ -7,6 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
+from .benchmark_service import BenchmarkResult
 from .config import AppConfig
 from .evaluation_service import EvaluationReport
 from .hybrid_retriever import DEFAULT_RRF_K
@@ -171,7 +172,7 @@ def _render_result_summary(response: SearchResponse) -> None:
     if response.reranking_used:
         summary = st.columns(4)
         summary[0].metric("Base retrieval", response.retrieval_method)
-        summary[1].metric("Reranker", "Cross-Encoder")
+        summary[1].metric("Reranker", "Remote Adapter" if (response.reranker_name or "").startswith("remote:") else "Cross-Encoder")
         summary[2].metric("Results returned", len(response.results))
         summary[3].metric("Total query", f"{response.total_query_latency_ms:.1f} ms")
         st.caption(
@@ -221,6 +222,9 @@ def render_evaluation_report(report: EvaluationReport) -> None:
     """Render aggregate metrics, latency summaries, and per-query diagnostics."""
 
     st.markdown("### Evaluation results")
+    with st.expander("Evaluation model identity"):
+        st.text(f"Dense: {report.dense_model_id or 'Not applicable'}")
+        st.text(f"Reranker: {report.reranker_model_id or 'Off'}")
     metric_rows = [
         {
             "Metric": metric_name,
@@ -289,17 +293,185 @@ def render_evaluation_report(report: EvaluationReport) -> None:
     )
 
 
+def render_benchmark_report(report: BenchmarkResult) -> None:
+    """Render aggregate leaders, complete results, and aligned query diagnostics."""
+
+    st.markdown("### Benchmark results")
+    summary = st.columns(3)
+    summary[0].metric("Configurations", len(report.pipeline_results))
+    summary[1].metric("Completed", len(report.successful_results))
+    summary[2].metric("Benchmark duration", f"{report.total_duration_ms / 1000.0:.2f} s")
+    st.caption(
+        "Benchmark duration is wall-clock time for the complete run. Pipeline latency is the "
+        "mean measured per query for each configuration."
+    )
+
+    for failed in report.failed_results:
+        st.error(f"{failed.pipeline_name} failed: {failed.error}")
+    for warning in report.warnings:
+        st.warning(warning)
+
+    selector_columns = st.columns([2, 1])
+    metric = selector_columns[0].selectbox(
+        "Comparison metric",
+        ("Recall", "Hit Rate", "MRR", "NDCG", "Latency"),
+        key="benchmark_metric",
+    )
+    cutoff = 10
+    if metric != "Latency":
+        cutoff = selector_columns[1].selectbox(
+            "K",
+            report.k_values,
+            index=report.k_values.index(10) if 10 in report.k_values else 0,
+            key="benchmark_k",
+        )
+        value_label = f"{metric}@{cutoff}"
+    else:
+        selector_columns[1].caption("Latency uses mean total query time.")
+        value_label = "Mean total latency (ms)"
+
+    leader_rows: list[dict[str, object]] = []
+    for pipeline in report.pipeline_results:
+        value = None
+        if pipeline.succeeded:
+            value = (
+                pipeline.mean_total_latency_ms
+                if metric == "Latency"
+                else pipeline.metrics[metric][cutoff]
+            )
+        leader_rows.append(
+            {
+                "Pipeline": pipeline.pipeline_name,
+                value_label: value,
+                "Status": "Succeeded" if pipeline.succeeded else "Failed",
+            }
+        )
+    leader_frame = pd.DataFrame(leader_rows)
+    numeric_values = [
+        float(value)
+        for value in leader_frame[value_label].tolist()
+        if value is not None and not pd.isna(value)
+    ]
+    leader_value = None
+    if numeric_values:
+        leader_value = min(numeric_values) if metric == "Latency" else max(numeric_values)
+
+    def highlight_leader(row: pd.Series) -> list[str]:
+        style = "background-color: rgba(99, 218, 177, 0.16); color: #e5fff5;"
+        is_leader = leader_value is not None and row[value_label] == leader_value
+        return [style if is_leader else "" for _ in row]
+
+    value_format = "%.1f ms" if metric == "Latency" else "%.4f"
+    st.dataframe(
+        leader_frame.style.apply(highlight_leader, axis=1).format(
+            {value_label: value_format}, na_rep="—"
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    if leader_value is not None:
+        direction = "lowest" if metric == "Latency" else "highest"
+        st.caption(
+            f"Metric leader shading marks the {direction} {value_label.lower()} in this run; "
+            "it is not a universal pipeline ranking."
+        )
+
+    st.markdown("#### Full comparison")
+    full_rows = []
+    for pipeline in report.pipeline_results:
+        full_rows.append(
+            {
+                "Pipeline": pipeline.pipeline_name,
+                "Recall@10": pipeline.metrics.get("Recall", {}).get(10),
+                "MRR@10": pipeline.metrics.get("MRR", {}).get(10),
+                "NDCG@10": pipeline.metrics.get("NDCG", {}).get(10),
+                "Retrieval (ms)": pipeline.mean_retrieval_latency_ms,
+                "Reranking (ms)": pipeline.mean_reranking_latency_ms,
+                "Total (ms)": pipeline.mean_total_latency_ms,
+                "Queries": pipeline.evaluated_queries,
+                "Status": "Succeeded" if pipeline.succeeded else "Failed",
+            }
+        )
+    st.dataframe(
+        pd.DataFrame(full_rows),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Recall@10": st.column_config.NumberColumn(format="%.4f"),
+            "MRR@10": st.column_config.NumberColumn(format="%.4f"),
+            "NDCG@10": st.column_config.NumberColumn(format="%.4f"),
+            "Retrieval (ms)": st.column_config.NumberColumn(format="%.1f"),
+            "Reranking (ms)": st.column_config.NumberColumn(format="%.1f"),
+            "Total (ms)": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
+
+    with st.expander("Configuration identity"):
+        identity_rows = [
+            {
+                "Pipeline": pipeline.pipeline_name,
+                "Reranker": pipeline.reranker_name,
+                "Embedding model": pipeline.embedding_model_id or "Not applicable",
+                "Reranker model": pipeline.reranker_model_id or "Off",
+                "Candidate depth": report.candidate_depth,
+            }
+            for pipeline in report.pipeline_results
+        ]
+        st.dataframe(pd.DataFrame(identity_rows), hide_index=True, width="stretch")
+
+    if st.checkbox("Compare one query across pipelines", key="show_query_comparison"):
+        query_id = st.selectbox(
+            "Query",
+            report.query_ids,
+            key="benchmark_query_id",
+        )
+        query_rows: list[dict[str, object]] = []
+        for pipeline in report.pipeline_results:
+            query = next(
+                (item for item in pipeline.query_results if item.query_id == query_id),
+                None,
+            )
+            query_rows.append(
+                {
+                    "Pipeline": pipeline.pipeline_name,
+                    "First relevant rank": None if query is None else query.first_relevant_rank,
+                    "Hit@10": None if query is None else query.hit_at_10,
+                    "Retrieved document IDs": (
+                        "—" if query is None else ", ".join(query.retrieved_document_ids)
+                    ),
+                    "Relevant retrieved": (
+                        "—" if query is None else ", ".join(query.relevant_document_ids) or "None"
+                    ),
+                    "Latency (ms)": (
+                        None if query is None else query.search_response.total_query_latency_ms
+                    ),
+                    "Status": "Failed" if query is None else "Succeeded",
+                }
+            )
+        st.dataframe(
+            pd.DataFrame(query_rows),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Retrieved document IDs": st.column_config.TextColumn(width="large"),
+                "Relevant retrieved": st.column_config.TextColumn(width="medium"),
+                "Latency (ms)": st.column_config.NumberColumn(format="%.1f"),
+            },
+        )
+        st.caption("Document IDs are shown without passage text to keep comparisons scannable.")
+
+
 def render_about_method() -> None:
     with st.expander("About the retrieval pipelines"):
         st.markdown(
             """
-            **Dense** uses normalized SentenceTransformer-compatible query and passage embeddings with exact inner-product retrieval.
+            **Dense** uses the selected local or remote encoder with exact local cosine or dot-product retrieval.
 
             **BM25** retrieves by lexical term evidence and preserves its raw Okapi BM25 score.
 
             **Hybrid** combines the independent Dense and BM25 candidate rankings with Reciprocal Rank Fusion.
 
-            **Cross-Encoder** optionally reranks only the fixed candidate set returned by the selected base pipeline.
+            **Reranking** uses the selected CrossEncoder or Remote Adapter to score only the fixed candidate set returned by the base pipeline.
             """
         )
         st.info(

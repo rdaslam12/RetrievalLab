@@ -16,7 +16,7 @@ from .model_ids import validate_huggingface_model_id
 from .types import RankedPassage
 
 if TYPE_CHECKING:
-    from .interfaces import Reranker
+    from .interfaces import Reranker, RerankerAdapter
 
 
 LOGGER = logging.getLogger(__name__)
@@ -94,14 +94,16 @@ def _load_cached_cross_encoder(
 def rerank_candidates(
     query: str,
     candidates: Sequence[RankedPassage],
-    reranker: Reranker,
+    reranker: RerankerAdapter | Reranker,
 ) -> tuple[RankedPassage, ...]:
     """Rerank exactly ``candidates`` while preserving first-stage provenance."""
 
     fixed_candidates = tuple(candidates)
     if not fixed_candidates:
         return ()
-    scores = np.asarray(reranker.score(query, fixed_candidates), dtype=np.float64).reshape(-1)
+    inputs = ([item.passage.text for item in fixed_candidates]
+              if getattr(reranker, "input_kind", None) == "text" else fixed_candidates)
+    scores = np.asarray(reranker.score(query, inputs), dtype=np.float64).reshape(-1)
     if scores.shape != (len(fixed_candidates),):
         raise ValueError(
             "Reranker returned a different number of scores than retrieved candidates."
@@ -136,6 +138,8 @@ def rerank_candidates(
 
 class CrossEncoderReranker:
     """Lazy ``sentence_transformers.CrossEncoder`` passage reranker."""
+
+    input_kind = "text"
 
     def __init__(
         self,
@@ -178,10 +182,11 @@ class CrossEncoderReranker:
             convert_to_numpy=True,
         )
 
-    def score(self, query: str, candidates: Sequence[RankedPassage]) -> Sequence[float]:
+    def score(self, query: str, candidates: list[str] | Sequence[RankedPassage]) -> np.ndarray:
         if not candidates:
-            return ()
-        pairs = [(query, candidate.passage.text) for candidate in candidates]
+            return np.empty(0, dtype=np.float64)
+        pairs = [(query, candidate if isinstance(candidate, str) else candidate.passage.text)
+                 for candidate in candidates]
         model = self._get_model()
         try:
             predictions = self._predict(model, pairs)
@@ -209,4 +214,4 @@ class CrossEncoderReranker:
             raise RerankerUnavailableError(
                 f"Reranker {self.model_id} returned invalid scores."
             )
-        return scores.tolist()
+        return scores

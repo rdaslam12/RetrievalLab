@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from .bm25_retriever import BM25SearchEngine
+from .interfaces import adapter_model_id
 from .search_engine import DenseSearchEngine
 from .types import Passage, RankedPassage, SearchResponse, VectorHit
 
@@ -150,9 +151,9 @@ class HybridSearchEngine:
             retrieval_latency_ms=retrieval_latency,
             total_query_latency_ms=(perf_counter() - total_started) * 1000.0,
             index_backend=self.index_backend,
-            device=str(self.dense_engine.embedder.device),
+            device=str(getattr(self.dense_engine.embedder, "device", "adapter")),
             retrieval_method="Hybrid",
-            dense_model_id=self.dense_engine.embedder.model_id,
+            dense_model_id=adapter_model_id(self.dense_engine.embedder),
             embedding_dimension=self.dense_engine.embedder.dimension,
         )
 

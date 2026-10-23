@@ -79,7 +79,7 @@ The parsing, chunking, indexing, retrieval, orchestration, and presentation laye
 The ordinary suite is fast and offline. It uses deterministic fake embeddings while covering parsing, page-safe chunking, dense retrieval, vector indexing, BM25, Hybrid RRF, orchestration, and JSONL retrieval.
 
 ```bash
-python -m compileall -q app.py src scripts tests
+python -m compileall -q app.py src scripts tests examples
 python -m pytest -q
 python scripts/smoke_test.py
 ```
@@ -92,7 +92,7 @@ RUN_MODEL_SMOKE=1 python -m pytest -q tests/test_real_model_smoke.py
 
 ## Current scope
 
-RetrievalLab currently retrieves and inspects passages. It does not evaluate relevance, download benchmark datasets, train models, generate responses, or persist corpora between sessions.
+RetrievalLab retrieves, reranks, evaluates, and benchmarks passages over a fixed session corpus. It does not download benchmark datasets, train models, generate responses, or persist corpora between sessions.
 
 RetrievalLab originated from deployment work around an ongoing retrieval and reranking research project. Unpublished research implementations, trained checkpoints, experimental configurations, and private research artifacts are intentionally not included in this public repository while the associated work is under review.
 
@@ -105,3 +105,11 @@ RetrievalLab originated from deployment work around an ongoing retrieval and rer
 - Expanded accessibility and cross-platform checks
 
 Contributions should preserve local-session privacy, deterministic ranking behavior, transparent result provenance, and fast offline tests.
+
+## Bring your own retriever or reranker
+
+Choose **Remote Adapter** in Model settings to connect a separately hosted research
+model using `retrievallab-adapter/1`. RetrievalLab sends text for inference and owns
+local indexing, retrieval, evaluation, and exports. No uploaded executable code or
+checkpoints are accepted. See [the protocol and deployment guide](docs/adapter_protocol.md)
+and [the deterministic standalone template](examples/remote_adapter/server.py).

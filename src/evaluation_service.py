@@ -18,7 +18,7 @@ from .services import SearchService
 from .types import SearchResponse
 
 if TYPE_CHECKING:
-    from .interfaces import Reranker, SearchEngine
+    from .interfaces import Reranker, RerankerAdapter, SearchEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +29,7 @@ class QueryEvaluation:
     first_relevant_rank: int | None
     hit_at_10: bool
     retrieved_document_ids: tuple[str, ...]
+    relevant_document_ids: tuple[str, ...]
     metrics: Mapping[int, Mapping[str, float]]
     search_response: SearchResponse
 
@@ -44,6 +45,8 @@ class EvaluationReport:
     queries_with_judgments: int
     warnings: tuple[str, ...]
     query_results: tuple[QueryEvaluation, ...]
+    dense_model_id: str | None = None
+    reranker_model_id: str | None = None
 
 
 class EvaluationService:
@@ -54,7 +57,7 @@ class EvaluationService:
     queries contribute zero, making the denominator explicit and stable.
     """
 
-    def __init__(self, engine: SearchEngine, reranker: Reranker | None = None) -> None:
+    def __init__(self, engine: SearchEngine, reranker: RerankerAdapter | Reranker | None = None) -> None:
         self.engine = engine
         self.reranker = reranker
 
@@ -106,6 +109,11 @@ class EvaluationService:
                     first_relevant_rank=first_relevant_rank,
                     hit_at_10=bool(metrics_at_k(document_ranking, relevance, 10)["Hit Rate"]),
                     retrieved_document_ids=document_ranking[: max(fixed_k)],
+                    relevant_document_ids=tuple(
+                        document_id
+                        for document_id in document_ranking[: max(fixed_k)]
+                        if document_id in relevant_ids
+                    ),
                     metrics=query_metrics,
                     search_response=response,
                 )
@@ -120,6 +128,8 @@ class EvaluationService:
         }
         reranking_enabled = any(result.search_response.reranking_used for result in per_query)
         return EvaluationReport(
+            dense_model_id=per_query[0].search_response.dense_model_id,
+            reranker_model_id=per_query[0].search_response.reranker_name,
             k_values=fixed_k,
             metrics=aggregate,
             mean_retrieval_latency_ms=fmean(

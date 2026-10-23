@@ -8,7 +8,7 @@ from typing import Callable, Protocol, Sequence
 import numpy as np
 
 from .config import AppConfig
-from .interfaces import Retriever
+from .interfaces import DenseEncoderAdapter, Retriever, adapter_model_id
 from .types import Passage, RankedPassage, SearchResponse, VectorHit
 from .vector_index import create_vector_index
 
@@ -34,7 +34,7 @@ def _unit_normalize(matrix: np.ndarray, dimension: int) -> np.ndarray:
         raise ValueError(f"Expected [N, {dimension}] embeddings, got {vectors.shape}")
     if not np.isfinite(vectors).all():
         raise ValueError("Embeddings contain NaN or infinite values")
-    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.linalg.norm(vectors.astype(np.float64), axis=1, keepdims=True)
     if np.any(norms <= 0.0):
         raise ValueError("Embeddings must have non-zero norms")
     return np.ascontiguousarray(vectors / norms, dtype=np.float32)
@@ -46,7 +46,7 @@ class DenseSearchEngine:
     def __init__(
         self,
         config: AppConfig,
-        embedder: EmbedderLike,
+        embedder: DenseEncoderAdapter | EmbedderLike,
         *,
         index_factory: IndexFactory = create_vector_index,
     ) -> None:
@@ -56,6 +56,19 @@ class DenseSearchEngine:
         self.passages: tuple[Passage, ...] = ()
         self.embeddings: np.ndarray | None = None
         self.vector_index: Retriever[np.ndarray] | None = None
+
+    def _prepare_vectors(self, matrix: np.ndarray, dimension: int) -> np.ndarray:
+        similarity = getattr(self.embedder, "similarity", "cosine")
+        if similarity == "cosine":
+            return _unit_normalize(matrix, dimension)
+        if similarity != "dot":
+            raise ValueError("Dense adapter similarity must be cosine or dot")
+        vectors = np.asarray(matrix, dtype=np.float32)
+        if vectors.ndim != 2 or vectors.shape[1] != dimension:
+            raise ValueError("Dense adapter returned an unexpected vector shape")
+        if not np.isfinite(vectors).all():
+            raise ValueError("Dense adapter vectors must be finite")
+        return np.ascontiguousarray(vectors)
 
     @property
     def is_indexed(self) -> bool:
@@ -92,8 +105,9 @@ class DenseSearchEngine:
         identifiers = [passage.chunk_id for passage in candidate_passages]
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("Passage chunk IDs must be unique")
-        candidate_embeddings = _unit_normalize(
-            self.embedder.encode_passages([passage.text for passage in candidate_passages]),
+        encode_documents = getattr(self.embedder, "encode_documents", None) or self.embedder.encode_passages
+        candidate_embeddings = self._prepare_vectors(
+            encode_documents([passage.text for passage in candidate_passages]),
             self.embedder.dimension,
         )
         if candidate_embeddings.shape[0] != len(candidate_passages):
@@ -111,9 +125,13 @@ class DenseSearchEngine:
             raise ValueError("Enter a non-empty search query.")
         if not self.is_indexed or self.vector_index is None or self.embeddings is None:
             raise RuntimeError("Index a corpus before searching.")
-        query_vector = _unit_normalize(
-            self.embedder.encode_query(cleaned_query), self.embedder.dimension
-        )[0]
+        encode_queries = getattr(self.embedder, "encode_queries", None)
+        encoded = (encode_queries([cleaned_query]) if encode_queries is not None
+                   else self.embedder.encode_query(cleaned_query))
+        query_vectors = self._prepare_vectors(encoded, self.embedder.dimension)
+        if query_vectors.shape[0] != 1:
+            raise ValueError("Encoder must return exactly one query vector")
+        query_vector = query_vectors[0]
         candidate_depth = min(self.config.candidate_depth, len(self.passages))
         return cleaned_query, query_vector, self.vector_index.search(query_vector, candidate_depth)
 
@@ -143,9 +161,9 @@ class DenseSearchEngine:
             retrieval_latency_ms=retrieval_latency,
             total_query_latency_ms=(perf_counter() - total_started) * 1000.0,
             index_backend=self.vector_index.backend,
-            device=str(self.embedder.device),
+            device=str(getattr(self.embedder, "device", "adapter")),
             retrieval_method="Dense",
-            dense_model_id=self.embedder.model_id,
+            dense_model_id=adapter_model_id(self.embedder),
             embedding_dimension=self.embedder.dimension,
         )
 

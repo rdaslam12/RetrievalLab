@@ -14,10 +14,11 @@ from .document_parser import DocumentValidationError, parse_corpus
 from .hybrid_retriever import HybridSearchEngine
 from .reranker import rerank_candidates
 from .search_engine import DenseSearchEngine, EmbedderLike
+from .interfaces import DenseEncoderAdapter
 from .types import Passage, SearchResponse
 
 if TYPE_CHECKING:
-    from .interfaces import Reranker, SearchEngine
+    from .interfaces import Reranker, RerankerAdapter, SearchEngine
 
 
 class CorpusEmbedder(EmbedderLike, Protocol):
@@ -45,7 +46,7 @@ class CorpusService:
     def __init__(
         self,
         config: AppConfig,
-        embedder_loader: Callable[[], CorpusEmbedder] | None = None,
+        embedder_loader: Callable[[], DenseEncoderAdapter | CorpusEmbedder] | None = None,
     ) -> None:
         self.config = config
         self._embedder_loader = embedder_loader
@@ -77,13 +78,13 @@ class CorpusService:
                 )
             sections_to_chunk = parsed.sections[jsonl_start_document - 1 :]
 
-        embedder: CorpusEmbedder | None = None
+        embedder: DenseEncoderAdapter | CorpusEmbedder | None = None
         if build_dense:
             if self._embedder_loader is None:
                 raise ValueError("Dense indexing requires an embedding model loader.")
             report_progress("Loading the selected embedding model and tokenizer.")
             embedder = self._embedder_loader()
-            tokenizer = embedder.tokenizer
+            tokenizer = getattr(embedder, "tokenizer", None) or WhitespaceTokenizer()
         else:
             report_progress("Preparing BM25 passages without loading an embedding model.")
             tokenizer = WhitespaceTokenizer()
@@ -137,7 +138,7 @@ class CorpusService:
 def build_dense_engines(
     config: AppConfig,
     passages: Sequence[Passage],
-    embedder_loader: Callable[[], CorpusEmbedder],
+    embedder_loader: Callable[[], DenseEncoderAdapter | CorpusEmbedder],
     *,
     bm25_engine: BM25SearchEngine | None = None,
 ) -> tuple[DenseSearchEngine, HybridSearchEngine]:
@@ -154,7 +155,7 @@ def build_dense_engines(
 class SearchService:
     """Run base retrieval and an optional independent reranking stage."""
 
-    def __init__(self, engine: SearchEngine, reranker: Reranker | None = None) -> None:
+    def __init__(self, engine: SearchEngine, reranker: RerankerAdapter | Reranker | None = None) -> None:
         self.engine = engine
         self.reranker = reranker
 
@@ -182,7 +183,7 @@ class SearchService:
             retrieval_response,
             results=reranked[:final_limit],
             reranking_used=True,
-            reranker_name=self.reranker.name,
+            reranker_name=getattr(self.reranker, "model_id", self.reranker.name),
             reranking_latency_ms=reranking_latency,
             total_query_latency_ms=(perf_counter() - total_started) * 1000.0,
         )

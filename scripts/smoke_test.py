@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -17,10 +18,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.services import CorpusService, SearchService  # noqa: E402
+from src.benchmark_service import BenchmarkService, PipelineConfiguration  # noqa: E402
 from src.config import load_config  # noqa: E402
 from src.evaluation import EvaluationQuery  # noqa: E402
 from src.evaluation_service import EvaluationService  # noqa: E402
 from src.types import RankedPassage  # noqa: E402
+from src.remote_adapter import RemoteAdapterClient, RemoteDenseAdapter, RemoteRerankerAdapter  # noqa: E402
 
 
 class SmokeTokenizer:
@@ -79,6 +82,23 @@ class DeterministicSmokeReranker:
         return [float(len(candidate.passage.text)) for candidate in candidates]
 
 
+class SmokeAdapterTransport:
+    """In-process protocol fixture; never opens a network connection."""
+
+    def request(self, endpoint, method, route, body, token):
+        payload = json.loads(body) if body else None
+        if route == "/metadata":
+            result = {"protocol": "retrievallab-adapter/1", "name": "Smoke remote",
+                      "adapter_type": "dense+reranker", "dimension": 32,
+                      "similarity": "cosine", "max_batch_size": 2}
+        elif route == "/encode":
+            model = DeterministicSmokeEmbedder(32)
+            result = {"vectors": model.encode_passages(payload["texts"]).tolist()}
+        else:
+            result = {"scores": [float(len(text)) for text in payload["passages"]]}
+        return json.dumps(result).encode()
+
+
 def main() -> None:
     config = load_config()
     use_real_model = os.getenv("RUN_MODEL_SMOKE") == "1"
@@ -125,6 +145,31 @@ def main() -> None:
     )
     if evaluation.metrics["Hit Rate"][10] != 1.0:
         raise RuntimeError("Document-level retrieval evaluation did not find the labeled document")
+    benchmark = BenchmarkService(
+        {
+            "Dense": prepared.engine,
+            "BM25": prepared.bm25_engine,
+            "Hybrid": prepared.hybrid_engine,
+        },
+        embedding_model_id=embedder.model_id,
+    ).evaluate(
+        tuple(
+            PipelineConfiguration(name) for name in ("Dense", "BM25", "Hybrid")
+        ),
+        [EvaluationQuery("smoke-query", "dense embeddings")],
+        {"smoke-query": {"jsonl-dense": 1.0}},
+    )
+    if len(benchmark.successful_results) != 3 or benchmark.failed_results:
+        raise RuntimeError("Multi-pipeline benchmark did not complete all base configurations")
+    remote_client = RemoteAdapterClient(
+        "https://smoke.example.org", transport=SmokeAdapterTransport()
+    )
+    remote_corpus = CorpusService(config, lambda: RemoteDenseAdapter(remote_client)).prepare(payloads)
+    remote_response = SearchService(
+        remote_corpus.hybrid_engine, RemoteRerankerAdapter(remote_client)
+    ).search("dense embeddings")
+    if not remote_response.results or not remote_response.reranking_used:
+        raise RuntimeError("Remote adapter composition failed")
     print(
         "Smoke test passed:",
         f"files={prepared.files}",
@@ -133,6 +178,8 @@ def main() -> None:
         "pipelines=dense,bm25,hybrid",
         "reranking=passed",
         "evaluation=passed",
+        "benchmark=passed",
+        "remote_adapters=passed",
     )
 
 

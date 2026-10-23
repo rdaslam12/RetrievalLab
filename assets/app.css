@@ -718,6 +718,44 @@ h3 {
     gap: 0.85rem;
 }
 
+.st-key-evaluation_mode {
+    width: min(100%, 34rem);
+    margin: 0.2rem 0 0.15rem;
+}
+
+.st-key-evaluation_mode [data-testid="stRadio"] [role="radiogroup"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.24rem;
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.st-key-evaluation_mode [data-testid="stRadio"] [role="radiogroup"] > label {
+    min-height: 2.2rem;
+    padding: 0.4rem 0.72rem;
+    border-radius: 9px;
+}
+
+.st-key-benchmark_configurations [data-baseweb="select"] > div {
+    min-height: 3rem;
+    border-color: var(--line-strong);
+    border-radius: 12px;
+    background: #141925;
+}
+
+.st-key-benchmark_configurations [data-baseweb="tag"] {
+    color: #dce6ff;
+    background: #29304a;
+}
+
+.st-key-benchmark_metric [data-baseweb="select"] > div,
+.st-key-benchmark_k [data-baseweb="select"] > div,
+.st-key-benchmark_query_id [data-baseweb="select"] > div {
+    border-color: var(--line-strong);
+    border-radius: 10px;
+    background: #141925;
+}
+
 .evaluation-heading {
     display: flex;
     align-items: flex-start;
@@ -776,6 +814,14 @@ h3 {
     min-height: 5.4rem;
     background: #141925;
     box-shadow: none;
+}
+
+.st-key-evaluation_workspace [data-testid="stDownloadButton"] button {
+    min-height: 2.65rem;
+    border-color: var(--line-strong);
+    border-radius: 12px;
+    color: var(--ink-soft);
+    background: #171c29;
 }
 
 /* Results read as evidence sheets, with rank and measurements in one rhythm. */

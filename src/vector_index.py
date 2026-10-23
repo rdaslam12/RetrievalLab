@@ -78,7 +78,10 @@ class NumpyVectorIndex(VectorIndex):
         if k <= 0:
             return []
         vector = _validate_query(query, self.dimension)
-        scores = self._embeddings @ vector
+        with np.errstate(over="ignore", invalid="ignore"):
+            scores = self._embeddings @ vector
+        if not np.isfinite(scores).all():
+            raise ValueError("Dense similarity scores overflowed; use smaller dot-product vector magnitudes")
         indices = np.arange(self.size)
         order = np.lexsort((indices, -scores))[: min(k, self.size)]
         return [
@@ -115,6 +118,8 @@ class FaissVectorIndex(VectorIndex):
         vector = _validate_query(query, self.dimension)
         count = min(k, self.size)
         scores, indices = self._index.search(vector.reshape(1, -1), count)
+        if not np.isfinite(scores).all():
+            raise ValueError("Dense similarity scores overflowed; use smaller dot-product vector magnitudes")
         pairs = [(int(index), float(score)) for index, score in zip(indices[0], scores[0]) if index >= 0]
         pairs.sort(key=lambda pair: (-pair[1], pair[0]))
         return [
