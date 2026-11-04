@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from streamlit.testing.v1 import AppTest
 
 from src.config import load_config
@@ -5,23 +7,66 @@ from src.reranker import DEFAULT_RERANKER_MODEL
 
 
 APP_TEST_TIMEOUT_SECONDS = 30
+WORKBENCH_TEST_SCRIPT = "from app import render_workbench\nrender_workbench()"
 
 
+def _run_workbench() -> AppTest:
+    return AppTest.from_string(
+        WORKBENCH_TEST_SCRIPT,
+        default_timeout=APP_TEST_TIMEOUT_SECONDS,
+    ).run()
 
-def test_intro_hero_explains_rag_and_links_to_workbench() -> None:
+
+def test_landing_page_tells_the_product_story_without_workbench_widgets() -> None:
     app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
     assert not app.exception
-    markup = "\n".join(item.value for item in app.markdown)
-    assert 'class="intro-hero"' in markup
-    assert 'intro-hero__frame--one' in markup
-    assert 'intro-hero__frame--two' in markup
-    assert 'intro-hero__frame--three' in markup
-    assert 'Retrieval-Augmented Generation (RAG)' in markup
-    assert 'href="#retrieval-workbench"' in markup
+    markdown_markup = [item.value for item in app.markdown]
+    html_markup = [item.proto.body for item in app.get("html")]
+    markup = "\n".join([*markdown_markup, *html_markup])
+    assert 'class="landing-page-marker"' in markup
+    assert [link.label for link in app.get("page_link")] == ["Home", "Workbench"]
+    assert "Upload your documents." in markup
+    assert "Search smarter." in markup
+    assert "Your models. Your experiments." in markup
+    assert "How does RetrievalLab work?" in markup
+    assert "01</span>" in markup and "04</span>" in markup
+    assert app.button("landing_explore").label == "Explore RetrievalLab →"
+    assert app.button("landing_final_cta").label == "Open the workbench →"
+    assert len(app.file_uploader) == 0
+    assert len(app.chat_input) == 0
+    assert len(app.radio) == 0
+
+
+def test_landing_motion_is_fast_continuous_and_reduced_motion_safe() -> None:
+    stylesheet = Path("assets/landing.css").read_text(encoding="utf-8")
+
+    assert stylesheet.count("9.6s linear infinite") == 3
+    assert "29.33%" in stylesheet and "33.33%" in stylesheet
+    assert "62.66%" in stylesheet and "66.66%" in stylesheet
+    assert "@supports (animation-timeline: view())" in stylesheet
+    assert "@media (prefers-reduced-motion: reduce)" in stylesheet
+
+
+def test_landing_halftone_is_scoped_responsive_and_resource_aware() -> None:
+    effect = Path("assets/landing_halftone.html").read_text(encoding="utf-8")
+    stylesheet = Path("assets/landing.css").read_text(encoding="utf-8")
+
+    assert '<canvas class="landing-halftone" aria-hidden="true">' in effect
+    assert "ResizeObserver" in effect
+    assert "IntersectionObserver" in effect
+    assert "MutationObserver" in effect
+    assert "Math.min(window.devicePixelRatio || 1, 1.75)" in effect
+    assert "maxFrameRate = 18" in effect
+    assert 'document.addEventListener("visibilitychange"' in effect
+    assert 'matchMedia("(prefers-reduced-motion: reduce)")' in effect
+    assert "controller.abort()" in effect
+    assert "pointer-events: none" in stylesheet
+    assert "mask-image: radial-gradient" in stylesheet
+
 
 def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
-    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
 
     assert not app.exception
     assert app.radio("embedding_model_mode").value == "Default"
@@ -45,7 +90,7 @@ def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
 
 
 def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() -> None:
-    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
 
     assert not app.exception
     assert app.radio("evaluation_mode").value == "Evaluate one pipeline"
@@ -56,7 +101,7 @@ def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() ->
 
 
 def test_benchmark_mode_has_default_pipelines_and_requires_indexes() -> None:
-    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
 
     app.radio("evaluation_mode").set_value("Compare pipelines").run()
 
@@ -75,7 +120,7 @@ def test_remote_settings_connect_and_clear_stale_metadata(monkeypatch) -> None:
     from tests.test_remote_adapter import FakeTransport, SECRET
     transport = FakeTransport()
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: transport)
-    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
     app.radio('embedding_model_mode').set_value('Remote Adapter').run()
     assert not app.exception
     assert app.text_input('remote_embedding_token').proto.type == 1
@@ -105,7 +150,7 @@ def test_remote_settings_connect_and_clear_stale_metadata(monkeypatch) -> None:
 def test_remote_connection_error_is_safe_and_actionable(monkeypatch) -> None:
     from tests.test_remote_adapter import FakeTransport, METADATA, SECRET
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: FakeTransport(METADATA | {'name': SECRET}))
-    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
     app.radio('embedding_model_mode').set_value('Remote Adapter').run()
     app.text_input('remote_embedding_endpoint').set_value('https://adapter.example.org').run()
     app.text_input('remote_embedding_token').set_value(SECRET).run()
@@ -120,7 +165,7 @@ def test_remote_benchmark_preserves_interactive_search_and_dense_index(monkeypat
     from tests.test_remote_adapter import FakeTransport, SECRET
     transport = FakeTransport()
     monkeypatch.setattr('src.remote_adapter.HTTPTransport', lambda: transport)
-    app = AppTest.from_file('app.py', default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+    app = _run_workbench()
     for stage, mode_key in [('embedding', 'embedding_model_mode'), ('reranker', 'reranker_model_mode')]:
         app.radio(mode_key).set_value('Remote Adapter').run()
         app.text_input(f'remote_{stage}_endpoint').set_value('https://adapter.example.org').run()
