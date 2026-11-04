@@ -58,9 +58,9 @@ LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 PIPELINES = {
-    "Dense": "Semantic retrieval using the selected dense encoder and local vector index.",
-    "BM25": "Lexical retrieval using raw Okapi BM25 scores.",
-    "Hybrid": "Dense and BM25 rankings combined with Reciprocal Rank Fusion.",
+    "Dense": "AI meaning search finds related ideas, even when the words are different.",
+    "BM25": "Keyword search finds passages with words matching your question.",
+    "Hybrid": "Combined search uses both keywords and meaning to rank results.",
 }
 RERANKERS = ("Off", "Cross-Encoder")
 
@@ -210,7 +210,7 @@ def _render_model_settings(
 ) -> None:
     """Render compact, conditional selectors for the two model stages."""
 
-    with st.expander("Model settings"):
+    with st.expander("Advanced model settings"):
         embedding_column, reranker_column = st.columns(2)
         with embedding_column:
             st.markdown("**Embedding model**")
@@ -290,17 +290,17 @@ def _sidebar(
                 </svg>
                 <div>
                     <strong>RetrievalLab</strong>
-                    <span>Local retrieval workbench</span>
+                    <span>Document search &amp; model comparison</span>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        st.markdown('<p class="sidebar-label">Session status</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sidebar-label">Your workspace</p>', unsafe_allow_html=True)
         if corpus_engine is None:
-            st.info("No corpus is active")
+            st.info("No documents added yet")
         else:
-            st.success(f"Corpus ready · {len(corpus_engine.passages):,} passages")
+            st.success(f"Documents ready · {len(corpus_engine.passages):,} searchable passages")
 
         with st.expander("Advanced details"):
             st.markdown(f"**Profile**  \n{config.profile_name}")
@@ -320,7 +320,7 @@ def _sidebar(
             """
             <div class="privacy-note">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6l-7-3Zm0 2.2 5 2.1V11c0 3.5-1.9 6.2-5 7.8C8.9 17.2 7 14.5 7 11V7.3l5-2.1Z"/></svg>
-                <p><strong>Private by design</strong><span>Indexes stay in this session. Remote adapters receive passage and query text for inference. Results are retrieved evidence, never generated answers.</span></p>
+                <p><strong>About your session</strong><span>Documents and search indexes are kept for this app session. A remote model receives the text needed for its inference if you enable one. Results are source passages, not AI-generated answers.</span></p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -345,7 +345,7 @@ def _render_corpus_manifest(engine: DenseSearchEngine | BM25SearchEngine) -> Non
             identity += f" · {passage.title}"
         entries.append(identity)
 
-    with st.expander("Corpus manifest"):
+    with st.expander("Documents in this session"):
         for entry in entries[:20]:
             st.text(entry)
         if len(entries) > 20:
@@ -363,8 +363,8 @@ def _render_corpus_section(
         """
         <div class="corpus-heading">
             <div>
-                <h2>Build your retrieval corpus</h2>
-                <p>Prepare one session-local knowledge base for every retrieval pipeline.</p>
+                <h2>1. Add documents to search</h2>
+                <p>Upload files and make them searchable with keywords, AI meaning search, or both.</p>
             </div>
             <span>PDF · DOCX · TXT · JSONL</span>
         </div>
@@ -378,7 +378,7 @@ def _render_corpus_section(
     )
     nonce = st.session_state.setdefault("uploader_nonce", 0)
     uploads = st.file_uploader(
-        "Add scientific or technical documents",
+        "Upload your documents",
         type=["pdf", "docx", "txt", "jsonl"],
         accept_multiple_files=True,
         key=f"corpus_upload_{nonce}",
@@ -432,13 +432,13 @@ def _render_corpus_section(
     selected_pipeline = st.session_state.get("retrieval_pipeline", "Dense")
     dense_index_requested = selected_pipeline != "BM25"
     process = process_column.button(
-        "Index corpus",
+        "Prepare for search",
         type="primary",
         disabled=not uploads or (dense_index_requested and embedding_model_id is None),
         width="stretch",
     )
     has_corpus = isinstance(st.session_state.get("bm25_engine"), BM25SearchEngine)
-    clear = clear_column.button("Clear corpus", disabled=not has_corpus, width="stretch")
+    clear = clear_column.button("Remove documents", disabled=not has_corpus, width="stretch")
     if clear:
         st.session_state.pop("engine", None)
         st.session_state.pop("bm25_engine", None)
@@ -574,7 +574,7 @@ def _render_corpus_section(
 
     summary = st.session_state.get("corpus_summary")
     if summary:
-        st.success("Knowledge base ready")
+        st.success("Your documents are ready to search")
         metrics = st.columns(4)
         metrics[0].metric("Documents", summary.get("documents", summary["files"]))
         metrics[1].metric("Passages", summary["passages"])
@@ -588,7 +588,7 @@ def _render_corpus_section(
                 for warning in summary["warnings"]:
                     st.warning(warning)
     else:
-        st.caption("Index documents to unlock the search canvas.")
+        st.caption("Upload and prepare documents to start searching.")
 
 
 def _render_search_section(
@@ -601,16 +601,17 @@ def _render_search_section(
     st.markdown(
         """
         <div class="search-section-heading">
-            <h2>Search the corpus</h2>
-            <p>Choose how the evidence should be ranked.</p>
+            <h2>2. Search your documents</h2>
+            <p>Ask a question and choose how the most relevant passages are found.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('<p class="selector-label">Base retrieval</p>', unsafe_allow_html=True)
+    st.markdown('<p class="selector-label">Search method</p>', unsafe_allow_html=True)
     pipeline = st.radio(
-        "Base retrieval",
+        "Search method",
         list(PIPELINES),
+        format_func=lambda value: {"Dense": "AI Meaning (Dense)", "BM25": "Keywords (BM25)", "Hybrid": "Combined (Hybrid)"}[value],
         horizontal=True,
         key="retrieval_pipeline",
     )
@@ -626,11 +627,12 @@ def _render_search_section(
         f'<p class="pipeline-description">{PIPELINES[pipeline]}</p>',
         unsafe_allow_html=True,
     )
-    st.markdown('<p class="selector-label">Reranker</p>', unsafe_allow_html=True)
+    st.markdown('<p class="selector-label">Optional: refine the results with AI</p>', unsafe_allow_html=True)
     reranker_choice = st.radio(
-        "Reranker",
+        "Result refinement",
         (("Off", "Remote Adapter") if st.session_state.get("reranker_model_mode") == "Remote Adapter"
          else ("Off",) if st.session_state.get("reranker_model_mode") == "Off" else RERANKERS),
+        format_func=lambda value: "On (AI reranking)" if value == "Cross-Encoder" else value,
         horizontal=True,
         index=0,
         key="reranker",
@@ -650,7 +652,7 @@ def _render_search_section(
         reranker_choice != "Off" and reranker_model_id is None
     )
     query = st.chat_input(
-        "Ask the active corpus a precise question",
+        "Ask a question about your documents…",
         disabled=not query_ready,
         key="retrieval_query",
     )
@@ -662,11 +664,11 @@ def _render_search_section(
         elif embedding_error and pipeline in {"Dense", "Hybrid"}:
             st.caption("Choose a valid embedding model to use this pipeline.")
         else:
-            st.caption("Index documents above to begin.")
+            st.caption("Prepare your documents above to begin.")
     elif not query_ready:
         st.caption("Choose a valid reranker model, or select Off.")
     else:
-        st.caption("Press Enter or select the send control to retrieve passages.")
+        st.caption("Press Enter to find relevant passages. This tool finds sources rather than generating answers.")
 
     if query and query.strip():
         try:
@@ -759,8 +761,8 @@ def _render_evaluation_section(
             """
             <div class="evaluation-heading">
                 <div>
-                    <h2>Evaluate retrieval</h2>
-                    <p>Measure one pipeline or compare several against the same labeled queries.</p>
+                    <h2>3. Measure and compare search</h2>
+                    <p>See how well your search methods find relevant documents using labeled questions.</p>
                 </div>
                 <span>DOCUMENT LEVEL</span>
             </div>
@@ -768,8 +770,9 @@ def _render_evaluation_section(
             unsafe_allow_html=True,
         )
         mode = st.radio(
-            "Evaluation mode",
+            "How would you like to test?",
             ("Evaluate one pipeline", "Compare pipelines"),
+            format_func=lambda value: "Test one search method" if value == "Evaluate one pipeline" else "Compare search methods",
             horizontal=True,
             key="evaluation_mode",
         )
@@ -1096,7 +1099,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     st.set_page_config(
-        page_title="RetrievalLab · Local retrieval workbench",
+        page_title="RetrievalLab · Search and compare documents",
         page_icon=":material/search_insights:",
         layout="wide",
         initial_sidebar_state="auto",
@@ -1115,10 +1118,42 @@ def main() -> None:
     _sidebar(config, preferred_device, embedding_model_id, reranker_model_id)
     st.markdown(
         """
-        <section class="search-hero">
-            <h1>What should we discover?</h1>
-            <p>A modular workbench for comparing dense, lexical, and hybrid retrieval pipelines.</p>
+        <section class="intro-hero" aria-labelledby="intro-hero-title">
+            <div class="intro-hero__glow" aria-hidden="true"></div>
+            <div class="intro-hero__content">
+                <div class="intro-hero__eyebrow">
+                    <span class="intro-hero__signal" aria-hidden="true"></span>
+                    RETRIEVALLAB <span class="intro-hero__eyebrow-divider">/</span> EXPLORE THE POWER OF SEARCH
+                </div>
+                <div class="intro-hero__stage">
+                    <h1 class="intro-hero__headline" id="intro-hero-title"
+                        aria-label="Upload your documents, search, and compare AI retrieval methods">
+                        <span class="intro-hero__frame intro-hero__frame--one" aria-hidden="true">
+                            Upload your documents.<br><span>Search. Compare. Discover.</span>
+                        </span>
+                        <span class="intro-hero__frame intro-hero__frame--two" aria-hidden="true">
+                            Explore the engine<br><span>behind RAG.</span>
+                        </span>
+                        <span class="intro-hero__frame intro-hero__frame--three" aria-hidden="true">
+                            Bring your own models.<br><span>See what changes.</span>
+                        </span>
+                    </h1>
+                </div>
+                <p class="intro-hero__description">
+                    RetrievalLab is an interactive playground for the retrieval stage of
+                    Retrieval-Augmented Generation (RAG). Search your documents by keywords
+                    or meaning, refine the results with AI, and compare different models.
+                    It finds relevant passages rather than writing an AI-generated answer.
+                </p>
+                <div class="intro-hero__bottom">
+                    <a class="intro-hero__action" href="#retrieval-workbench">
+                        Explore the workbench <span aria-hidden="true">↓</span>
+                    </a>
+                    <span class="intro-hero__hint">Your documents · Your questions · Your comparisons</span>
+                </div>
+            </div>
         </section>
+        <div id="retrieval-workbench" class="workbench-anchor"></div>
         """,
         unsafe_allow_html=True,
     )
