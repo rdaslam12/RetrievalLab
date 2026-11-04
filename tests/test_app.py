@@ -7,6 +7,19 @@ from src.reranker import DEFAULT_RERANKER_MODEL
 APP_TEST_TIMEOUT_SECONDS = 30
 
 
+
+def test_intro_hero_explains_rag_and_links_to_workbench() -> None:
+    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+
+    assert not app.exception
+    markup = "\n".join(item.value for item in app.markdown)
+    assert 'class="intro-hero"' in markup
+    assert 'intro-hero__frame--one' in markup
+    assert 'intro-hero__frame--two' in markup
+    assert 'intro-hero__frame--three' in markup
+    assert 'Retrieval-Augmented Generation (RAG)' in markup
+    assert 'href="#retrieval-workbench"' in markup
+
 def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
     app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
