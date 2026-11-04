@@ -1,10 +1,52 @@
 # RetrievalLab
 
-**A modular inference, evaluation, and benchmarking workbench for information retrieval systems.**
+**Upload documents. Search smarter. Compare retrieval models.**
 
-RetrievalLab is a modular workbench for running, evaluating, and comparing information-retrieval pipelines on user-provided corpora. It supports lexical, dense, hybrid, and reranked retrieval; compatible Hugging Face models can be swapped directly, while non-standard research architectures can integrate through a versioned remote adapter interface.
+[![Launch the Streamlit demo](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://retrievallab.streamlit.app/) &nbsp; [**Try the live website →**](https://retrievallab.streamlit.app/) &nbsp; [**Open the workbench →**](https://retrievallab.streamlit.app/workbench)
 
-RetrievalLab focuses on **retrieval inference, evaluation, and comparison—not LLM answer generation**.
+RetrievalLab is a modular **retrieval inference and evaluation workbench** for the search stage of Retrieval-Augmented Generation (RAG). Upload your own documents, explore keyword and AI meaning-based search, rerank passages, and compare different models using shared benchmarks. You can bring compatible Hugging Face retrievers and rerankers, or connect research models through remote inference adapters.
+
+> **Scope:** RetrievalLab retrieves and evaluates ranked evidence. It does **not** generate LLM answers, train models, or accept arbitrary executable model uploads.
+
+[![Animated overview of RetrievalLab's retrieval and evaluation pipeline](assets/screenshots/retrievallab-pipeline.svg)](https://retrievallab.streamlit.app/)
+
+### See the workbench
+
+The live site includes a separate animated introduction and a functional document-search workbench. These screenshots show actual workbench capabilities; [open the live demo](https://retrievallab.streamlit.app/) to explore the current landing page and animations.
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="assets/screenshots/retrieval-reranking.png"><img src="assets/screenshots/retrieval-reranking.png" alt="Document search and retrieval with optional reranking" width="100%"/></a>
+      <sub><strong>Search &amp; rerank</strong> — inspect source passages, ranking scores, and provenance.</sub>
+    </td>
+    <td width="50%">
+      <a href="assets/screenshots/benchmark-comparison.png"><img src="assets/screenshots/benchmark-comparison.png" alt="Multi-pipeline retrieval benchmark comparison" width="100%"/></a>
+      <sub><strong>Evaluate &amp; compare</strong> — compare methods against the same labeled queries.</sub>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary><strong>Custom retriever and reranker integrations</strong></summary>
+
+<br/>
+
+Compatible Hugging Face models can be selected directly, while custom research architectures connect through the `retrievallab-adapter/1` inference protocol.
+
+![Remote retriever and reranker adapter controls](assets/screenshots/remote-adapter.png)
+
+</details>
+
+### Start using it
+
+1. [Open RetrievalLab](https://retrievallab.streamlit.app/) and select **Explore RetrievalLab**.
+2. Upload PDFs, Word files, TXT files, or a BEIR-style JSONL dataset, then click **Prepare for search**.
+3. Ask a question and compare **AI Meaning (Dense)**, **Keywords (BM25)**, or **Combined (Hybrid)**.
+4. Optionally enable a reranker to refine the results.
+5. Use labeled query JSONL and qrels TSV files to evaluate or benchmark retrieval configurations.
+
+The public instance runs model inference on a shared hosting environment; model loading may take longer than on a dedicated computer.
 
 ---
 
@@ -12,19 +54,16 @@ RetrievalLab focuses on **retrieval inference, evaluation, and comparison—not 
 
 Run Dense, BM25, or Hybrid retrieval over the same indexed corpus, then optionally rerank the fixed first-stage candidate set with a CrossEncoder while preserving retrieval scores, original ranks, rank movement, and pipeline provenance.
 
-![Hybrid retrieval with CrossEncoder reranking](assets/screenshots/retrieval-reranking.png)
 
 ## Evaluation and benchmarking
 
 Evaluate retrieval with labeled queries and relevance judgments, or compare multiple retrieval and reranking configurations under the same corpus, query set, candidate depth, and metric implementation.
 
-![Multi-pipeline retrieval benchmark](assets/screenshots/benchmark-comparison.png)
 
 ## Bring your own retriever or reranker
 
 Compatible Hugging Face models can be selected directly. Non-standard research architectures can participate through the versioned `retrievallab-adapter/1` remote inference protocol without uploading executable model code or arbitrary checkpoints.
 
-![Remote retriever and reranker adapters](assets/screenshots/remote-adapter.png)
 
 ---
 
@@ -240,7 +279,7 @@ Then run:
 python -m streamlit run app.py
 ```
 
-Open the Streamlit URL, upload a corpus, choose the retrieval and model settings, then select **Index corpus**.
+Open the Streamlit URL, upload a corpus, choose the retrieval and model settings, then click **Prepare for search**.
 
 The first use of a selected Hugging Face model may download it into the local model cache.
 
@@ -272,7 +311,7 @@ From the RetrievalLab repository root, enable local adapter connections:
 RETRIEVALLAB_ALLOW_LOCAL_ADAPTERS=1 python -m streamlit run app.py
 ```
 
-In **Model settings**:
+In **Advanced model settings**:
 
 1. Choose **Remote Adapter** for the embedding model and/or reranker.
 2. Enter:
@@ -354,3 +393,11 @@ Unpublished research implementations, trained checkpoints, experimental configur
 RetrievalLab is feature-complete for its current scope: retrieval inference, optional reranking, document-level evaluation, controlled multi-pipeline benchmarking, diagnostics, export, and standardized model integration.
 
 It intentionally stops at ranked evidence and does not add an LLM answer-generation or chatbot layer.
+
+## Live demo and project maintainer
+
+- **Public demo:** https://retrievallab.streamlit.app/
+- **Source code:** https://github.com/rdaslam12/RetrievalLab
+- **Built by:** [Towhid Aslam](https://github.com/rdaslam12)
+
+The public demonstration and the local workbench share the same retrieval architecture. The landing page's animated halftone and typography are presentation-only; search, indexing, and benchmark outputs come from the actual implementations.
