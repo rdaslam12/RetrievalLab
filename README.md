@@ -8,6 +8,14 @@ RetrievalLab is a modular **retrieval inference and evaluation workbench** for t
 
 > **Scope:** RetrievalLab retrieves and evaluates ranked evidence. It does **not** generate LLM answers, train models, or accept arbitrary executable model uploads.
 
+### Live website preview
+
+[![RetrievalLab landing page showing the navigation, animated hero, document-search introduction, and developer credit](assets/screenshots/landing-page.png)](https://retrievallab.streamlit.app/)
+
+*Landing page of the deployed [RetrievalLab website](https://retrievallab.streamlit.app/).*
+
+### Retrieval workflow
+
 [![Animated overview of RetrievalLab's retrieval and evaluation pipeline](assets/screenshots/retrievallab-pipeline.svg)](https://retrievallab.streamlit.app/)
 
 ### See the workbench
