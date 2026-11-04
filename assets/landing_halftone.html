@@ -1,0 +1,208 @@
+<canvas class="landing-halftone" aria-hidden="true"></canvas>
+<script>
+(() => {
+    "use strict";
+
+    const script = document.currentScript;
+    const canvas = script?.previousElementSibling;
+    const hero = canvas?.closest(".st-key-landing_hero");
+    if (!(canvas instanceof HTMLCanvasElement) || !hero) return;
+
+    hero.__retrievalLabHalftoneCleanup?.();
+
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const smallScreenQuery = window.matchMedia("(max-width: 760px)");
+    const pointer = { x: -1000, y: -1000, active: false };
+    const controller = new AbortController();
+    const { signal } = controller;
+    const palette = [
+        [138, 180, 248],
+        [103, 232, 249],
+        [104, 113, 188],
+    ];
+    const maxFrameRate = 18;
+    const frameInterval = 1000 / maxFrameRate;
+
+    let width = 0;
+    let height = 0;
+    let dots = [];
+    let frameRequest = 0;
+    let lastFrame = 0;
+    let isRunning = false;
+    let isVisible = true;
+    let isDestroyed = false;
+
+    const random = (seed) => {
+        const value = Math.sin(seed * 12.9898) * 43758.5453;
+        return value - Math.floor(value);
+    };
+
+    const rebuildDots = () => {
+        const compact = smallScreenQuery.matches;
+        const spacing = compact ? 42 : 31;
+        const startX = width * (compact ? 0.56 : 0.43);
+        const baseRadius = compact ? 0.56 : 0.68;
+        const nextDots = [];
+        let index = 0;
+
+        for (let y = spacing * 0.25; y < height + spacing; y += spacing) {
+            const row = Math.round(y / spacing);
+            for (
+                let x = startX + (row % 2) * spacing * 0.5;
+                x < width + spacing;
+                x += spacing
+            ) {
+                index += 1;
+                const horizontalBias = Math.max(0, (x / width - 0.38) * 1.45);
+                const lowerBias = 0.18 + (y / height) * 0.48;
+                const density = Math.min(0.98, horizontalBias + lowerBias);
+                if (random(index * 2.17) > density) continue;
+
+                nextDots.push({
+                    x,
+                    y,
+                    radius: baseRadius + random(index * 3.11) * (compact ? 0.48 : 0.88),
+                    alpha: 0.10 + random(index * 5.27) * (compact ? 0.11 : 0.17),
+                    phase: random(index * 7.73) * Math.PI * 2,
+                    period: 4400 + random(index * 11.09) * 5200,
+                    color: palette[Math.floor(random(index * 13.31) * palette.length)],
+                });
+            }
+        }
+
+        dots = nextDots;
+    };
+
+    const draw = (timestamp = 0) => {
+        context.clearRect(0, 0, width, height);
+        const pointerRadius = smallScreenQuery.matches ? 110 : 170;
+
+        for (const dot of dots) {
+            const wave = motionQuery.matches
+                ? 0
+                : Math.sin((timestamp / dot.period) * Math.PI * 2 + dot.phase);
+            let radius = dot.radius * (1 + wave * 0.22);
+            let alpha = dot.alpha;
+
+            
+        if (pointer.active) {
+            const distance = Math.hypot(dot.x - pointer.x, dot.y - pointer.y);
+
+            if (distance < pointerRadius) {
+                const proximity = 1 - distance / pointerRadius;
+                const response = proximity * proximity * (3 - 2 * proximity);
+
+                // Increase dot size near the cursor
+                radius += response * (smallScreenQuery.matches ? 1.2 : 2.8);
+
+                // Increase brightness and opacity near the cursor
+                alpha = Math.min(0.95, alpha + response * 0.65);
+            }
+        }
+
+
+            context.beginPath();
+            context.arc(dot.x, dot.y, radius, 0, Math.PI * 2);
+            context.fillStyle = `rgba(${dot.color.join(",")},${alpha})`;
+            context.fill();
+        }
+    };
+
+    const animate = (timestamp) => {
+        if (!isRunning) return;
+        frameRequest = window.requestAnimationFrame(animate);
+        if (timestamp - lastFrame < frameInterval) return;
+        lastFrame = timestamp;
+        draw(timestamp);
+    };
+
+    const stop = () => {
+        isRunning = false;
+        if (frameRequest) window.cancelAnimationFrame(frameRequest);
+        frameRequest = 0;
+    };
+
+    const syncAnimation = () => {
+        const canAnimate =
+            !isDestroyed &&
+            !motionQuery.matches &&
+            !document.hidden &&
+            isVisible;
+
+        if (!canAnimate) {
+            stop();
+            draw(0);
+            return;
+        }
+        if (isRunning) return;
+        isRunning = true;
+        lastFrame = 0;
+        frameRequest = window.requestAnimationFrame(animate);
+    };
+
+    const resize = () => {
+        const bounds = hero.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return;
+
+        width = bounds.width;
+        height = bounds.height;
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.75);
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        rebuildDots();
+        draw(performance.now());
+    };
+
+    const resizeObserver = new ResizeObserver(resize);
+    const intersectionObserver = new IntersectionObserver(([entry]) => {
+        isVisible = entry.isIntersecting;
+        syncAnimation();
+    }, { rootMargin: "80px" });
+
+    const cleanup = () => {
+        if (isDestroyed) return;
+        isDestroyed = true;
+        stop();
+        controller.abort();
+        resizeObserver.disconnect();
+        intersectionObserver.disconnect();
+        removalObserver.disconnect();
+        if (hero.__retrievalLabHalftoneCleanup === cleanup) {
+            delete hero.__retrievalLabHalftoneCleanup;
+        }
+    };
+
+    const removalObserver = new MutationObserver(() => {
+        if (!canvas.isConnected) cleanup();
+    });
+
+    hero.__retrievalLabHalftoneCleanup = cleanup;
+    resizeObserver.observe(hero);
+    intersectionObserver.observe(hero);
+    removalObserver.observe(document.body, { childList: true, subtree: true });
+
+    hero.addEventListener("pointermove", (event) => {
+        const bounds = hero.getBoundingClientRect();
+        pointer.x = event.clientX - bounds.left;
+        pointer.y = event.clientY - bounds.top;
+        pointer.active = true;
+        if (motionQuery.matches) draw(0);
+    }, { signal, passive: true });
+
+    hero.addEventListener("pointerleave", () => {
+        pointer.active = false;
+        if (motionQuery.matches) draw(0);
+    }, { signal, passive: true });
+
+    document.addEventListener("visibilitychange", syncAnimation, { signal });
+    motionQuery.addEventListener("change", syncAnimation, { signal });
+    smallScreenQuery.addEventListener("change", resize, { signal });
+
+    resize();
+    syncAnimation();
+})();
+</script>

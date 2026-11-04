@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from html import escape
+import inspect
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -63,6 +65,12 @@ PIPELINES = {
     "Hybrid": "Combined search uses both keywords and meaning to rank results.",
 }
 RERANKERS = ("Off", "Cross-Encoder")
+
+# Assigned by ``main`` before the selected page is rendered. Keeping the page
+# objects in one entry point lets Streamlit preserve session state and cached
+# model resources while navigation stays hidden from the landing page.
+LANDING_PAGE = None
+WORKBENCH_PAGE = None
 
 
 @st.cache_resource(show_spinner=False)
@@ -296,6 +304,26 @@ def _sidebar(
             """,
             unsafe_allow_html=True,
         )
+
+        st.markdown(
+            '<p class="sidebar-label">Navigation</p>',
+            unsafe_allow_html=True,
+        )
+
+        if LANDING_PAGE is not None and st.button(
+            "← Home",
+            key="return_to_landing",
+            use_container_width=True,
+        ):
+            st.switch_page(LANDING_PAGE)
+
+        if WORKBENCH_PAGE is not None:
+            st.page_link(
+                WORKBENCH_PAGE,
+                label="Workbench",
+                icon=":material/search:",
+            )
+
         st.markdown('<p class="sidebar-label">Your workspace</p>', unsafe_allow_html=True)
         if corpus_engine is None:
             st.info("No documents added yet")
@@ -1091,21 +1119,249 @@ def _render_evaluation_section(
                 )
 
 
-def main() -> None:
-    """Render the complete local retrieval application."""
+def _load_stylesheet(name: str) -> None:
+    """Inject a trusted local stylesheet without adding a frontend runtime."""
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stylesheet = (PROJECT_ROOT / "assets" / name).read_text(encoding="utf-8")
+    st.html(f"<style>{stylesheet}</style>")
+
+
+def _render_author_footer() -> None:
+    """Display the shared author credit on both pages."""
+
+    photo_path = PROJECT_ROOT / "assets" / "towhid-aslam.jpg"
+
+    # Use the supplied photo when available; initials are the fallback.
+    if photo_path.is_file():
+        encoded = base64.b64encode(photo_path.read_bytes()).decode("ascii")
+        photo_html = (
+            f'<img class="author-footer-photo" '
+            f'src="data:image/jpeg;base64,{encoded}" '
+            f'alt="Towhid Aslam" width="48" height="48">'
+        )
+    else:
+        photo_html = '<span class="author-footer-avatar" aria-hidden="true">TA</span>'
+
+    st.html(
+        f"""
+        <footer class="author-footer">
+            <div class="author-footer-inner">
+                {photo_html}
+                <div class="author-footer-details">
+                    <span class="author-footer-name">
+                        Built by <strong>Towhid Aslam</strong>
+                    </span>
+                    <a href="https://github.com/rdaslam12"
+                       target="_blank"
+                       rel="noopener noreferrer">
+                        Go to GitHub ↗
+                    </a>
+                </div>
+            </div>
+        </footer>
+        """
     )
-    st.set_page_config(
-        page_title="RetrievalLab · Search and compare documents",
-        page_icon=":material/search_insights:",
-        layout="wide",
-        initial_sidebar_state="auto",
+
+
+
+def _go_to_workbench() -> None:
+    if WORKBENCH_PAGE is not None:
+        st.switch_page(WORKBENCH_PAGE)
+
+
+def _render_landing_halftone() -> None:
+    """Mount the landing-only canvas with JavaScript when Streamlit supports it."""
+
+    effect = (PROJECT_ROOT / "assets" / "landing_halftone.html").read_text(
+        encoding="utf-8"
     )
-    stylesheet = (PROJECT_ROOT / "assets" / "app.css").read_text(encoding="utf-8")
-    st.markdown(f"<style>{stylesheet}</style>", unsafe_allow_html=True)
+    if "unsafe_allow_javascript" in inspect.signature(st.html).parameters:
+        st.html(effect, unsafe_allow_javascript=True)
+    else:
+        # Streamlit < 1.52 renders the static canvas but safely ignores its script.
+        st.html(effect)
+
+
+def render_landing_page() -> None:
+    """Render the landing page with separate navigation and hero."""
+
+    _load_stylesheet("landing.css")
+
+    with st.container(key="landing_nav"):
+        with st.container(
+            key="landing_nav_inner",
+            horizontal=True,
+            horizontal_alignment="left",
+            vertical_alignment="center",
+            gap="xsmall",
+        ):
+            st.html(
+                """
+                <span class="landing-page-marker" aria-hidden="true"></span>
+                <div class="landing-brand">
+                    <svg class="landing-brand__mark"
+                         viewBox="0 0 40 40" aria-hidden="true">
+                        <rect x="3.5" y="3.5"
+                              width="33" height="33" rx="10"/>
+                        <circle cx="12" cy="13" r="2"/>
+                        <circle cx="12" cy="20" r="2"/>
+                        <circle cx="12" cy="27" r="2"/>
+                        <path d="M17 13h12M17 20h9M17 27h6"/>
+                    </svg>
+                    <strong>RetrievalLab</strong>
+                </div>
+                """,
+                width="content",
+            )
+            st.space("stretch")
+            st.page_link(
+                LANDING_PAGE,
+                label="Home",
+                icon=":material/home:",
+            )
+            st.page_link(
+                WORKBENCH_PAGE,
+                label="Workbench",
+                icon=":material/search:",
+            )
+
+    with st.container(key="landing_hero"):
+        _render_landing_halftone()
+
+        st.html(
+            """
+            <div class="landing-hero__body">
+                <p class="landing-eyebrow landing-enter landing-enter--eyebrow">
+                    <span aria-hidden="true"></span>
+                    DOCUMENT SEARCH, MADE VISIBLE
+                </p>
+
+                <div class="landing-headline-stage landing-enter landing-enter--headline">
+                    <h1 id="landing-title"
+                        aria-label="Upload your documents, find what matters, and compare search results">
+
+                        <span class="landing-headline landing-headline--one"
+                              aria-hidden="true">
+                            Upload your documents.<br>
+                            <em>Find what matters.</em>
+                        </span>
+
+                        <span class="landing-headline landing-headline--two"
+                              aria-hidden="true">
+                            Search smarter.<br>
+                            <em>Compare the results.</em>
+                        </span>
+
+                        <span class="landing-headline landing-headline--three"
+                              aria-hidden="true">
+                            Your documents.<br>
+                            <em>Your models. Your experiments.</em>
+                        </span>
+                    </h1>
+                </div>
+
+                <p class="landing-hero__description landing-enter landing-enter--description">
+                    Better RAG systems start with better retrieval.
+                    Testing and comparing retrieval models can be
+                    time-consuming, especially across different datasets
+                    and benchmarks. RetrievalLab is a modular inference
+                    and evaluation workbench where you can connect your
+                    own compatible retrievers and rerankers, compare
+                    their results, and measure performance.
+                    Experiment with AI-powered search and discover what
+                    happens behind the scenes.
+                </p>
+            </div>
+            """
+        )
+
+        if st.button(
+            "Explore RetrievalLab →",
+            type="primary",
+            key="landing_explore",
+        ):
+            _go_to_workbench()
+
+        st.html(
+            '<p class="landing-author-credit">'
+            'Built by <strong>Towhid Aslam</strong>'
+            '</p>'
+        )
+
+        st.html(
+            """
+            <div class="landing-scroll landing-enter landing-enter--scroll"
+                 aria-hidden="true">
+                <span>Scroll to see how it works</span>
+                <i></i>
+            </div>
+            """
+        )
+
+
+
+    with st.container(key="landing_how"):
+        st.markdown(
+            """
+            <header class="landing-section-heading landing-reveal">
+                <h2>How does RetrievalLab work?</h2>
+                <p>Finding the right information isn't always about matching the right words.
+                RetrievalLab lets you explore how different search methods find and rank information.</p>
+            </header>
+            <div class="landing-workflow" aria-label="RetrievalLab workflow">
+                <article class="landing-step landing-reveal landing-reveal--one">
+                    <span class="landing-step__number">01</span>
+                    <div><h3>Add your documents</h3>
+                    <p>Upload PDFs, Word documents, text files, or supported datasets.
+                    RetrievalLab prepares them for searching.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--two">
+                    <span class="landing-step__number">02</span>
+                    <div><h3>Search for anything</h3>
+                    <p>Enter a question or topic. Choose keyword search, AI-powered meaning
+                    search, or a combination of both.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--three">
+                    <span class="landing-step__number">03</span>
+                    <div><h3>Refine your results</h3>
+                    <p>Use an optional AI reranker to reorder the results and bring more
+                    relevant passages forward.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--four">
+                    <span class="landing-step__number">04</span>
+                    <div><h3>Compare and evaluate</h3>
+                    <p>Inspect how different methods perform and use built-in evaluation tools
+                    to measure their effectiveness.</p></div>
+                </article>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with st.container(key="landing_cta"):
+        st.markdown(
+            """
+            <div class="landing-cta__copy landing-reveal">
+                <h2>See what your search is really doing.</h2>
+                <p>Bring a document, try a few approaches, and compare the evidence for yourself.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "Open the workbench →",
+            type="primary",
+            key="landing_final_cta",
+        ):
+            _go_to_workbench()
+
+    # Shared footer at the bottom of the landing page (not within the hero).
+    _render_author_footer()
+
+
+def render_workbench() -> None:
+    """Render the complete retrieval application as a dedicated page."""
+
     config = load_config()
     preferred_device = detect_preferred_device()
     (
@@ -1118,42 +1374,11 @@ def main() -> None:
     _sidebar(config, preferred_device, embedding_model_id, reranker_model_id)
     st.markdown(
         """
-        <section class="intro-hero" aria-labelledby="intro-hero-title">
-            <div class="intro-hero__glow" aria-hidden="true"></div>
-            <div class="intro-hero__content">
-                <div class="intro-hero__eyebrow">
-                    <span class="intro-hero__signal" aria-hidden="true"></span>
-                    RETRIEVALLAB <span class="intro-hero__eyebrow-divider">/</span> EXPLORE THE POWER OF SEARCH
-                </div>
-                <div class="intro-hero__stage">
-                    <h1 class="intro-hero__headline" id="intro-hero-title"
-                        aria-label="Upload your documents, search, and compare AI retrieval methods">
-                        <span class="intro-hero__frame intro-hero__frame--one" aria-hidden="true">
-                            Upload your documents.<br><span>Search. Compare. Discover.</span>
-                        </span>
-                        <span class="intro-hero__frame intro-hero__frame--two" aria-hidden="true">
-                            Explore the engine<br><span>behind RAG.</span>
-                        </span>
-                        <span class="intro-hero__frame intro-hero__frame--three" aria-hidden="true">
-                            Bring your own models.<br><span>See what changes.</span>
-                        </span>
-                    </h1>
-                </div>
-                <p class="intro-hero__description">
-                    RetrievalLab is an interactive playground for the retrieval stage of
-                    Retrieval-Augmented Generation (RAG). Search your documents by keywords
-                    or meaning, refine the results with AI, and compare different models.
-                    It finds relevant passages rather than writing an AI-generated answer.
-                </p>
-                <div class="intro-hero__bottom">
-                    <a class="intro-hero__action" href="#retrieval-workbench">
-                        Explore the workbench <span aria-hidden="true">↓</span>
-                    </a>
-                    <span class="intro-hero__hint">Your documents · Your questions · Your comparisons</span>
-                </div>
-            </div>
-        </section>
-        <div id="retrieval-workbench" class="workbench-anchor"></div>
+        <header class="search-hero">
+            <h1>Search, compare, and evaluate.</h1>
+            <p>Build a document search workspace, inspect ranked passages, and measure how
+            different retrieval methods perform.</p>
+        </header>
         """,
         unsafe_allow_html=True,
     )
@@ -1179,6 +1404,39 @@ def main() -> None:
         reranker_error=reranker_error,
     )
     render_about_method()
+    _render_author_footer()
+
+
+def main() -> None:
+    """Configure the hidden multipage router and run the selected page."""
+
+    global LANDING_PAGE, WORKBENCH_PAGE
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    st.set_page_config(
+        page_title="RetrievalLab",
+        page_icon=":material/search_insights:",
+        layout="wide",
+        initial_sidebar_state="auto",
+    )
+    _load_stylesheet("app.css")
+    LANDING_PAGE = st.Page(
+        render_landing_page,
+        title="RetrievalLab",
+        icon=":material/home:",
+        url_path="home",
+        default=True,
+    )
+    WORKBENCH_PAGE = st.Page(
+        render_workbench,
+        title="Workbench",
+        icon=":material/search_insights:",
+        url_path="workbench",
+    )
+    st.navigation([LANDING_PAGE, WORKBENCH_PAGE], position="hidden").run()
 
 
 if __name__ == "__main__":

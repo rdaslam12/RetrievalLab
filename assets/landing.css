@@ -1,0 +1,900 @@
+/* Landing page: a focused introduction built from the workbench's existing visual language. */
+body:has(.landing-page-marker) [data-testid="stSidebar"],
+body:has(.landing-page-marker) [data-testid="stExpandSidebarButton"] {
+    display: none !important;
+}
+
+body:has(.landing-page-marker) [data-testid="stAppViewContainer"]::before,
+body:has(.landing-page-marker) [data-testid="stAppViewContainer"]::after {
+    inset: 0;
+}
+
+body:has(.landing-page-marker) [data-testid="stHeader"] {
+    display: none;
+}
+
+body:has(.landing-page-marker) .main .block-container,
+body:has(.landing-page-marker) [data-testid="stMainBlockContainer"] {
+    --landing-shell-gutter: clamp(0.75rem, 2.5vw, 2rem);
+    --landing-content-inset: clamp(1.25rem, 5.8vw, 5.5rem);
+    width: min(100%, 1380px);
+    max-width: 1380px;
+    padding: 0 var(--landing-shell-gutter);
+}
+
+body:has(.landing-page-marker)
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+    gap: 0;
+}
+
+.landing-page-marker {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+/* The hero is one continuous stage; motion reveals the product's three core actions. */
+.st-key-landing_hero {
+    position: relative;
+    min-height: calc(100svh - 2rem);
+    overflow: hidden;
+    isolation: isolate;
+    padding: clamp(1.4rem, 3.6vw, 3.25rem) var(--landing-content-inset) clamp(5.8rem, 10vh, 7rem);
+    border: 1px solid rgba(166, 191, 245, 0.16);
+    border-radius: 1.2rem;
+    background:
+        radial-gradient(ellipse 62% 58% at 86% 10%, rgba(71, 100, 202, 0.20), transparent 68%),
+        radial-gradient(ellipse 48% 42% at 18% 84%, rgba(64, 184, 211, 0.07), transparent 76%),
+        linear-gradient(125deg, #141927 0%, #0e121d 56%, #0b1018 100%);
+    box-shadow: 0 30px 88px rgba(0, 0, 0, 0.24);
+}
+
+.st-key-landing_hero::before,
+.st-key-landing_hero::after {
+    position: absolute;
+    z-index: -1;
+    content: "";
+    pointer-events: none;
+    border-radius: 50%;
+}
+
+.st-key-landing_hero::before {
+    top: -11rem;
+    right: -7rem;
+    width: min(43rem, 64vw);
+    height: min(39rem, 58vw);
+    background: radial-gradient(ellipse, rgba(72, 110, 239, 0.17), transparent 68%);
+    filter: blur(24px);
+    animation: landing-ambient-one 11s ease-in-out infinite alternate;
+}
+
+.st-key-landing_hero::after {
+    right: -9rem;
+    bottom: -18rem;
+    width: 38rem;
+    height: 38rem;
+    border: 1px solid rgba(124, 154, 235, 0.10);
+    box-shadow: 0 0 0 4.5rem rgba(124, 154, 235, 0.022),
+                0 0 0 9rem rgba(124, 154, 235, 0.014);
+    animation: landing-ambient-two 14s ease-in-out infinite alternate;
+}
+
+.st-key-landing_hero [data-testid="stVerticalBlock"] {
+    gap: 0;
+}
+
+/* A quiet retrieval field: scoped to the landing hero and always click-through. */
+.st-key-landing_hero > [data-testid="stElementContainer"]:has(.landing-halftone) {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.st-key-landing_hero [data-testid="stHtml"]:has(.landing-halftone) {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.landing-halftone {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0.68;
+    -webkit-mask-image: radial-gradient(ellipse 70% 78% at 84% 64%, #000 8%, rgba(0, 0, 0, 0.82) 54%, transparent 91%);
+    mask-image: radial-gradient(ellipse 70% 78% at 84% 64%, #000 8%, rgba(0, 0, 0, 0.82) 54%, transparent 91%);
+}
+
+.landing-brand,
+.landing-hero__body,
+.st-key-landing_explore {
+    position: relative;
+    z-index: 2;
+}
+
+.landing-scroll {
+    z-index: 2;
+}
+
+.landing-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: var(--ink);
+}
+
+.landing-brand__mark {
+    width: 2.15rem;
+    height: 2.15rem;
+    overflow: visible;
+    filter: drop-shadow(0 8px 16px rgba(73, 112, 213, 0.24));
+}
+
+.landing-brand__mark rect {
+    fill: #171d2a;
+    stroke: rgba(138, 180, 248, 0.48);
+}
+
+.landing-brand__mark circle {
+    fill: var(--cyan);
+}
+
+.landing-brand__mark path {
+    fill: none;
+    stroke: var(--blue);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+}
+
+.landing-brand strong {
+    font-size: 1rem;
+    font-weight: 680;
+    letter-spacing: -0.018em;
+}
+
+.landing-hero__body {
+    max-width: 66rem;
+    margin-top: clamp(3rem, 10vh, 7.5rem);
+}
+
+.landing-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0 0 clamp(1.2rem, 2.8vh, 2rem) !important;
+    color: #adbad5;
+    font-size: 0.7rem;
+    font-weight: 750;
+    letter-spacing: 0.115em;
+}
+
+.landing-eyebrow > span {
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 4px 14px rgba(103, 232, 249, 0.35);
+}
+
+.landing-headline-stage {
+    position: relative;
+    height: clamp(9.3rem, 18vw, 12rem);
+}
+
+.landing-headline-stage h1 {
+    position: relative;
+    height: 100%;
+    max-width: 24ch;
+    margin: 0 !important;
+    font-family: "RetrievalLab Display", var(--sans) !important;
+    font-size: clamp(2.8rem, 5.5vw, 4.7rem) !important;
+    font-weight: 520 !important;
+    line-height: 1.02 !important;
+    letter-spacing: -0.04em !important;
+    text-wrap: balance;
+}
+
+.landing-headline {
+    position: absolute;
+    inset: 0;
+    display: block;
+    opacity: 0;
+    will-change: opacity, transform, filter;
+}
+
+.landing-headline em {
+    color: #8db6fb;
+    font-style: normal;
+}
+
+.landing-headline--one {
+    opacity: 1;
+    animation: landing-headline-one 9.6s linear infinite both;
+}
+
+.landing-headline--two {
+    animation: landing-headline-two 9.6s linear infinite both;
+}
+
+.landing-headline--three {
+    animation: landing-headline-three 9.6s linear infinite both;
+}
+
+.landing-hero__description {
+    max-width: 65ch;
+    margin: clamp(1.2rem, 3vh, 2rem) 0 0 !important;
+    color: #b7c2d8;
+    font-size: clamp(0.96rem, 1.35vw, 1.08rem);
+    line-height: 1.72;
+}
+
+.st-key-landing_explore {
+    width: max-content;
+    margin-top: clamp(1.5rem, 3.5vh, 2.5rem);
+    animation: landing-support-in 620ms 720ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.st-key-landing_explore .stButton > button,
+.st-key-landing_final_cta .stButton > button {
+    min-height: 3.1rem;
+    padding: 0.72rem 1.2rem;
+    border-radius: 0.85rem;
+    color: #09101c;
+    border-color: #8ab4f8;
+    background: #8ab4f8;
+    box-shadow: 0 12px 28px rgba(51, 79, 161, 0.27);
+}
+
+.st-key-landing_explore .stButton > button:hover,
+.st-key-landing_final_cta .stButton > button:hover {
+    border-color: #a9c7fb;
+    background: #a9c7fb;
+    box-shadow: 0 16px 34px rgba(51, 79, 161, 0.32);
+    transform: translateY(-2px);
+}
+
+.landing-scroll {
+    position: absolute;
+    right: clamp(1.25rem, 5.8vw, 5.5rem);
+    bottom: clamp(1.5rem, 3.2vw, 2.7rem);
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    color: #8792a8;
+    font-size: 0.7rem;
+    letter-spacing: 0.045em;
+}
+
+.landing-scroll i {
+    position: relative;
+    display: block;
+    width: 1.45rem;
+    height: 2.2rem;
+    border: 1px solid rgba(174, 195, 241, 0.28);
+    border-radius: 999px;
+}
+
+.landing-scroll i::after {
+    position: absolute;
+    top: 0.42rem;
+    left: 50%;
+    width: 0.22rem;
+    height: 0.42rem;
+    content: "";
+    border-radius: 999px;
+    background: var(--cyan);
+    transform: translateX(-50%);
+    animation: landing-scroll-cue 1.8s ease-in-out infinite;
+}
+
+.landing-enter {
+    animation: landing-support-in 620ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.landing-enter--brand { animation-delay: 80ms; }
+.landing-enter--eyebrow { animation-delay: 190ms; }
+.landing-enter--headline { animation-delay: 300ms; }
+.landing-enter--description { animation-delay: 560ms; }
+.landing-enter--scroll { animation-delay: 920ms; }
+
+@keyframes landing-support-in {
+    from { opacity: 0; transform: translateY(14px); filter: blur(4px); }
+    to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes landing-headline-one {
+    0%, 29.33% { opacity: 1; transform: translateY(0); filter: blur(0); }
+    33.33%, 96% { opacity: 0; transform: translateY(-10px); filter: blur(3px); }
+    100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes landing-headline-two {
+    0%, 29.33% { opacity: 0; transform: translateY(12px); filter: blur(3px); }
+    33.33%, 62.66% { opacity: 1; transform: translateY(0); filter: blur(0); }
+    66.66%, 100% { opacity: 0; transform: translateY(-10px); filter: blur(3px); }
+}
+
+@keyframes landing-headline-three {
+    0%, 62.66% { opacity: 0; transform: translateY(12px); filter: blur(3px); }
+    66.66%, 96% { opacity: 1; transform: translateY(0); filter: blur(0); }
+    100% { opacity: 0; transform: translateY(-10px); filter: blur(3px); }
+}
+
+@keyframes landing-ambient-one {
+    from { transform: translate3d(-2%, -1%, 0) scale(0.98); opacity: 0.72; }
+    to { transform: translate3d(3%, 3%, 0) scale(1.04); opacity: 1; }
+}
+
+@keyframes landing-ambient-two {
+    from { transform: translate3d(0, 0, 0) scale(0.98); }
+    to { transform: translate3d(-2.5%, -2%, 0) scale(1.025); }
+}
+
+@keyframes landing-scroll-cue {
+    0%, 100% { opacity: 0.35; transform: translate(-50%, 0); }
+    48% { opacity: 1; }
+    72% { opacity: 0; transform: translate(-50%, 0.62rem); }
+}
+
+/* Workflow: spacious editorial rows that can later accept supporting imagery. */
+.st-key-landing_how {
+    position: relative;
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: clamp(6.5rem, 15vh, 11rem) clamp(0.75rem, 3vw, 2.5rem) clamp(5rem, 12vh, 8rem);
+}
+
+.landing-section-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(22rem, 1fr);
+    align-items: end;
+    gap: clamp(2rem, 7vw, 6rem);
+    margin-bottom: clamp(4rem, 9vh, 6.5rem);
+}
+
+.landing-section-heading h2,
+.landing-cta__copy h2 {
+    max-width: 13ch;
+    margin: 0 !important;
+    font-family: "RetrievalLab Display", var(--sans) !important;
+    font-size: clamp(2.2rem, 4.7vw, 4.3rem) !important;
+    font-weight: 510 !important;
+    line-height: 1.06 !important;
+    letter-spacing: -0.038em !important;
+    text-wrap: balance;
+}
+
+.landing-section-heading p {
+    max-width: 58ch;
+    margin: 0 0 0.35rem;
+    color: var(--ink-soft);
+    font-size: clamp(0.98rem, 1.3vw, 1.08rem);
+    line-height: 1.72;
+}
+
+.landing-workflow {
+    position: relative;
+}
+
+.landing-workflow::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1.55rem;
+    width: 1px;
+    content: "";
+    background: linear-gradient(to bottom, rgba(138, 180, 248, 0.38), rgba(103, 232, 249, 0.08));
+    transform-origin: top;
+}
+
+.landing-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: clamp(1.5rem, 4vw, 3.5rem);
+    min-height: 13rem;
+    padding: 0 0 clamp(3.5rem, 8vh, 5.5rem);
+}
+
+.landing-step:last-child {
+    min-height: 8rem;
+    padding-bottom: 0;
+}
+
+.landing-step__number {
+    position: relative;
+    z-index: 1;
+    align-self: start;
+    width: 3.1rem;
+    padding: 0.45rem 0;
+    color: #b7cdf8;
+    border: 1px solid rgba(138, 180, 248, 0.22);
+    border-radius: 999px;
+    background: #111621;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: center;
+}
+
+.landing-step > div {
+    max-width: 47rem;
+    padding-top: 0.05rem;
+}
+
+.landing-step:nth-child(even) > div {
+    margin-left: 0;
+}
+
+.landing-step h3 {
+    margin: 0 0 0.8rem !important;
+    color: var(--ink) !important;
+    font-family: "RetrievalLab Display", var(--sans) !important;
+    font-size: clamp(1.45rem, 2.8vw, 2.3rem) !important;
+    font-weight: 520 !important;
+    letter-spacing: -0.03em !important;
+}
+
+.landing-step p {
+    max-width: 62ch;
+    margin: 0;
+    color: #aeb8cc;
+    font-size: clamp(0.94rem, 1.2vw, 1.02rem);
+    line-height: 1.72;
+}
+
+.landing-reveal {
+    opacity: 1;
+    transform: none;
+}
+
+@supports (animation-timeline: view()) {
+
+    .landing-reveal {
+        animation: landing-scroll-reveal 1s linear both;
+        animation-timeline: view(block);
+        animation-range: entry 0% cover 55%;
+    }
+
+    .landing-reveal--two {
+        animation-range: entry 0% cover 58%;
+    }
+
+    .landing-reveal--three {
+        animation-range: entry 0% cover 61%;
+    }
+
+    .landing-reveal--four {
+        animation-range: entry 0% cover 64%;
+    }
+}
+
+@keyframes landing-scroll-reveal {
+    0% {
+        opacity: 0;
+        transform: translateY(46px);
+        filter: blur(5px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+}
+
+.st-key-landing_cta {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 2rem;
+    max-width: 76rem;
+    margin: 0 auto 1rem;
+    padding: clamp(4.5rem, 11vh, 7.5rem) clamp(1.5rem, 5vw, 4.75rem);
+    overflow: hidden;
+    border-radius: 1rem;
+    background:
+        radial-gradient(ellipse 52% 100% at 100% 0%, rgba(66, 92, 183, 0.18), transparent 70%),
+        #111621;
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, 0.08);
+}
+
+.st-key-landing_cta [data-testid="stVerticalBlock"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 2rem;
+}
+
+.landing-cta__copy p {
+    max-width: 54ch;
+    margin: 1.2rem 0 0;
+    color: #acb7ca;
+    font-size: 0.98rem;
+    line-height: 1.65;
+}
+
+.st-key-landing_final_cta {
+    width: max-content;
+}
+
+@media (max-width: 760px) {
+    body:has(.landing-page-marker) .main .block-container,
+    body:has(.landing-page-marker) [data-testid="stMainBlockContainer"] {
+        --landing-shell-gutter: 0.55rem;
+        --landing-content-inset: 1.1rem;
+    }
+
+    .st-key-landing_hero {
+        min-height: calc(100svh - 1.1rem);
+        padding: 1.2rem var(--landing-content-inset) 5.4rem;
+        border-radius: 0.95rem;
+    }
+
+    .landing-halftone {
+        opacity: 0.42;
+        -webkit-mask-image: radial-gradient(ellipse 62% 72% at 90% 70%, #000 5%, rgba(0, 0, 0, 0.7) 52%, transparent 92%);
+        mask-image: radial-gradient(ellipse 62% 72% at 90% 70%, #000 5%, rgba(0, 0, 0, 0.7) 52%, transparent 92%);
+    }
+
+    .landing-hero__body {
+        margin-top: clamp(3.5rem, 9vh, 5.5rem);
+    }
+
+    .landing-headline-stage {
+        height: 14rem;
+    }
+
+    .landing-headline-stage h1 {
+        max-width: 13ch;
+        font-size: clamp(2.15rem, 11.2vw, 3.15rem) !important;
+        line-height: 1.07 !important;
+        letter-spacing: -0.038em !important;
+    }
+
+    .landing-hero__description {
+        margin-top: 0.9rem !important;
+        font-size: 0.93rem;
+        line-height: 1.62;
+    }
+
+    .st-key-landing_explore {
+        margin-top: 1.35rem;
+    }
+
+    .st-key-landing_explore .stButton > button,
+    .st-key-landing_final_cta .stButton > button {
+        min-height: 3.05rem;
+    }
+
+    .landing-scroll {
+        display: none;
+    }
+
+    .landing-section-heading {
+        grid-template-columns: 1fr;
+        align-items: start;
+        gap: 1.5rem;
+    }
+
+    .st-key-landing_how {
+        padding: 6rem 1rem 5rem;
+    }
+
+    .landing-workflow::before {
+        left: 1.52rem;
+    }
+
+    .landing-step {
+        grid-template-columns: 3rem minmax(0, 1fr);
+        gap: 1rem;
+        min-height: 14rem;
+        padding-bottom: 3rem;
+    }
+
+    .landing-step:nth-child(even) > div {
+        margin-left: 0;
+    }
+
+    .landing-step__number {
+        width: 3rem;
+    }
+
+    .st-key-landing_cta,
+    .st-key-landing_cta [data-testid="stVerticalBlock"] {
+        grid-template-columns: 1fr;
+        align-items: start;
+    }
+
+    .st-key-landing_cta {
+        margin: 0 0.55rem 0.55rem;
+        padding: 4rem 1.25rem;
+    }
+
+    .st-key-landing_final_cta {
+        margin-top: 0.5rem;
+    }
+}
+
+@media (pointer: coarse) {
+    .st-key-landing_explore .stButton > button,
+    .st-key-landing_final_cta .stButton > button {
+        min-height: 3.25rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .st-key-landing_hero::before,
+    .st-key-landing_hero::after,
+    .landing-enter,
+    .st-key-landing_explore,
+    .landing-scroll i::after,
+    .landing-reveal {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+    }
+
+    .landing-headline {
+        animation: none !important;
+        opacity: 0 !important;
+        transform: none !important;
+        filter: none !important;
+    }
+
+    .landing-headline--one {
+        opacity: 1 !important;
+    }
+
+    .st-key-landing_explore .stButton > button,
+    .st-key-landing_final_cta .stButton > button {
+        transition-duration: 80ms;
+    }
+
+    .st-key-landing_explore .stButton > button:hover,
+    .st-key-landing_final_cta .stButton > button:hover {
+        transform: none;
+    }
+
+    .landing-halftone {
+        opacity: 0.38;
+    }
+}
+/* Animated atmospheric grid background */
+
+.st-key-landing_hero {
+    background:
+        linear-gradient(
+            rgba(138, 180, 248, 0.045) 1px,
+            transparent 1px
+        ),
+        linear-gradient(
+            90deg,
+            rgba(138, 180, 248, 0.045) 1px,
+            transparent 1px
+        ),
+        radial-gradient(
+            ellipse 65% 60% at 85% 15%,
+            rgba(73, 105, 216, 0.22),
+            transparent 75%
+        ),
+        radial-gradient(
+            ellipse 55% 50% at 10% 90%,
+            rgba(45, 137, 183, 0.10),
+            transparent 75%
+        ),
+        #090b11;
+
+    background-size:
+        56px 56px,
+        56px 56px,
+        auto,
+        auto,
+        auto;
+
+    animation: landing-grid-drift 40s linear infinite;
+}
+
+@keyframes landing-grid-drift {
+    from {
+        background-position:
+            0 0, 0 0, center, center, center;
+    }
+
+    to {
+        background-position:
+            56px 56px, -56px 56px,
+            center, center, center;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .st-key-landing_hero {
+        animation: none !important;
+    }
+}
+
+/* ==========================================
+   FULL-PAGE AMBIENT GRID BACKGROUND
+   ========================================== */
+
+/* Extend the background across the whole landing page */
+body:has(.landing-page-marker) [data-testid="stAppViewContainer"] {
+    background:
+        radial-gradient(
+            ellipse 65% 50% at 80% 15%,
+            rgba(58, 88, 186, 0.16),
+            transparent 75%
+        ),
+        radial-gradient(
+            ellipse 50% 55% at 12% 85%,
+            rgba(39, 125, 166, 0.09),
+            transparent 75%
+        ),
+        #090b11 !important;
+}
+
+/* Subtle, continuously moving grid */
+body:has(.landing-page-marker) [data-testid="stAppViewContainer"]::before {
+    position: fixed;
+    inset: -72px;
+    z-index: 0;
+    content: "";
+    pointer-events: none;
+
+    background:
+        linear-gradient(
+            rgba(138, 180, 248, 0.045) 1px,
+            transparent 1px
+        ),
+        linear-gradient(
+            90deg,
+            rgba(138, 180, 248, 0.045) 1px,
+            transparent 1px
+        );
+
+    background-size: 72px 72px;
+    opacity: 0.75;
+    filter: none;
+
+    will-change: transform;
+    animation: landing-page-grid-pan 60s linear infinite;
+}
+
+/* Reduce the existing dark vignette */
+body:has(.landing-page-marker) [data-testid="stAppViewContainer"]::after {
+    opacity: 0.2;
+}
+
+/* Remove the card-like appearance of the hero */
+.st-key-landing_hero {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
+/* Keep the decorative hero rings very faint */
+.st-key-landing_hero::after {
+    opacity: 0.14;
+}
+
+/* Seamless animated loop */
+@keyframes landing-page-grid-pan {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(72px, 72px, 0);
+    }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+    body:has(.landing-page-marker)
+    [data-testid="stAppViewContainer"]::before {
+        animation: none !important;
+        transform: none !important;
+    }
+}
+
+/* Landing navigation: full-bleed atmosphere with hero-aligned contents. */
+body:has(.landing-page-marker)
+[data-testid="stLayoutWrapper"]:has(> .st-key-landing_nav) {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.st-key-landing_nav {
+    position: relative;
+    width: 100vw;
+    max-width: none;
+    margin-inline: calc(50% - 50vw);
+    padding: 0;
+    border-bottom: 1px solid rgba(138, 180, 248, 0.08);
+    background: rgba(9, 11, 17, 0.58);
+    -webkit-backdrop-filter: blur(12px) saturate(115%);
+    backdrop-filter: blur(12px) saturate(115%);
+}
+
+.st-key-landing_nav_inner {
+    box-sizing: border-box;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    width: min(
+        calc(100% - 2 * var(--landing-shell-gutter)),
+        calc(1380px - 2 * var(--landing-shell-gutter))
+    ) !important;
+    max-width: none;
+    min-height: 4rem;
+    margin: 0 auto;
+    padding-inline: var(--landing-content-inset);
+    gap: 0.5rem !important;
+}
+
+.st-key-landing_nav .landing-brand__mark {
+    width: 1.8rem;
+    height: 1.8rem;
+}
+
+.st-key-landing_nav [data-testid="stPageLink"] a {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: #b7c2d8;
+    transition:
+        color 200ms ease,
+        background 200ms ease,
+        border-color 200ms ease;
+}
+
+.st-key-landing_nav [data-testid="stPageLink"] a:hover {
+    color: #f0f2f8;
+    border-color: rgba(138, 180, 248, 0.16);
+    background: rgba(138, 180, 248, 0.08);
+}
+
+@media (max-width: 760px) {
+    .st-key-landing_nav_inner {
+        min-height: 3.75rem;
+    }
+
+    .st-key-landing_nav .landing-brand__mark {
+        width: 1.7rem;
+        height: 1.7rem;
+    }
+
+    .st-key-landing_nav .landing-brand strong {
+        font-size: 0.85rem;
+    }
+
+    .st-key-landing_nav [data-testid="stPageLink"] a {
+        font-size: 0.8rem;
+        padding: 0.45rem 0.5rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .st-key-landing_nav [data-testid="stPageLink"] a {
+        transition: none;
+    }
+}
