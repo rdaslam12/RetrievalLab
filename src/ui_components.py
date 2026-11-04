@@ -197,12 +197,12 @@ def render_results(response: SearchResponse, *, config: AppConfig) -> None:
     """Render ranked evidence and pipeline details without changing response data."""
 
     method = response.retrieval_method
-    st.header("Retrieved evidence")
+    st.header("Results from your documents")
     _literal_block(response.query, class_name="query-block")
     _render_result_summary(response)
     for result in response.results:
         render_result_card(result, method=method)
-    with st.expander("Pipeline details"):
+    with st.expander("How these results were ranked"):
         _render_pipeline_details(response, config, method=method)
 
     if response.reranking_used:
@@ -462,7 +462,7 @@ def render_benchmark_report(report: BenchmarkResult) -> None:
 
 
 def render_about_method() -> None:
-    with st.expander("About the retrieval pipelines"):
+    with st.expander("How the search methods work"):
         st.markdown(
             """
             **Dense** uses the selected local or remote encoder with exact local cosine or dot-product retrieval.

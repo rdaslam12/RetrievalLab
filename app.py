@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from html import escape
+import inspect
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -58,11 +60,17 @@ LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 PIPELINES = {
-    "Dense": "Semantic retrieval using the selected dense encoder and local vector index.",
-    "BM25": "Lexical retrieval using raw Okapi BM25 scores.",
-    "Hybrid": "Dense and BM25 rankings combined with Reciprocal Rank Fusion.",
+    "Dense": "AI meaning search finds related ideas, even when the words are different.",
+    "BM25": "Keyword search finds passages with words matching your question.",
+    "Hybrid": "Combined search uses both keywords and meaning to rank results.",
 }
 RERANKERS = ("Off", "Cross-Encoder")
+
+# Assigned by ``main`` before the selected page is rendered. Keeping the page
+# objects in one entry point lets Streamlit preserve session state and cached
+# model resources while navigation stays hidden from the landing page.
+LANDING_PAGE = None
+WORKBENCH_PAGE = None
 
 
 @st.cache_resource(show_spinner=False)
@@ -210,7 +218,7 @@ def _render_model_settings(
 ) -> None:
     """Render compact, conditional selectors for the two model stages."""
 
-    with st.expander("Model settings"):
+    with st.expander("Advanced model settings"):
         embedding_column, reranker_column = st.columns(2)
         with embedding_column:
             st.markdown("**Embedding model**")
@@ -290,17 +298,37 @@ def _sidebar(
                 </svg>
                 <div>
                     <strong>RetrievalLab</strong>
-                    <span>Local retrieval workbench</span>
+                    <span>Document search &amp; model comparison</span>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        st.markdown('<p class="sidebar-label">Session status</p>', unsafe_allow_html=True)
+
+        st.markdown(
+            '<p class="sidebar-label">Navigation</p>',
+            unsafe_allow_html=True,
+        )
+
+        if LANDING_PAGE is not None and st.button(
+            "← Home",
+            key="return_to_landing",
+            use_container_width=True,
+        ):
+            st.switch_page(LANDING_PAGE)
+
+        if WORKBENCH_PAGE is not None:
+            st.page_link(
+                WORKBENCH_PAGE,
+                label="Workbench",
+                icon=":material/search:",
+            )
+
+        st.markdown('<p class="sidebar-label">Your workspace</p>', unsafe_allow_html=True)
         if corpus_engine is None:
-            st.info("No corpus is active")
+            st.info("No documents added yet")
         else:
-            st.success(f"Corpus ready · {len(corpus_engine.passages):,} passages")
+            st.success(f"Documents ready · {len(corpus_engine.passages):,} searchable passages")
 
         with st.expander("Advanced details"):
             st.markdown(f"**Profile**  \n{config.profile_name}")
@@ -320,7 +348,7 @@ def _sidebar(
             """
             <div class="privacy-note">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6l-7-3Zm0 2.2 5 2.1V11c0 3.5-1.9 6.2-5 7.8C8.9 17.2 7 14.5 7 11V7.3l5-2.1Z"/></svg>
-                <p><strong>Private by design</strong><span>Indexes stay in this session. Remote adapters receive passage and query text for inference. Results are retrieved evidence, never generated answers.</span></p>
+                <p><strong>About your session</strong><span>Documents and search indexes are kept for this app session. A remote model receives the text needed for its inference if you enable one. Results are source passages, not AI-generated answers.</span></p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -345,7 +373,7 @@ def _render_corpus_manifest(engine: DenseSearchEngine | BM25SearchEngine) -> Non
             identity += f" · {passage.title}"
         entries.append(identity)
 
-    with st.expander("Corpus manifest"):
+    with st.expander("Documents in this session"):
         for entry in entries[:20]:
             st.text(entry)
         if len(entries) > 20:
@@ -363,8 +391,8 @@ def _render_corpus_section(
         """
         <div class="corpus-heading">
             <div>
-                <h2>Build your retrieval corpus</h2>
-                <p>Prepare one session-local knowledge base for every retrieval pipeline.</p>
+                <h2>1. Add documents to search</h2>
+                <p>Upload files and make them searchable with keywords, AI meaning search, or both.</p>
             </div>
             <span>PDF · DOCX · TXT · JSONL</span>
         </div>
@@ -378,7 +406,7 @@ def _render_corpus_section(
     )
     nonce = st.session_state.setdefault("uploader_nonce", 0)
     uploads = st.file_uploader(
-        "Add scientific or technical documents",
+        "Upload your documents",
         type=["pdf", "docx", "txt", "jsonl"],
         accept_multiple_files=True,
         key=f"corpus_upload_{nonce}",
@@ -432,13 +460,13 @@ def _render_corpus_section(
     selected_pipeline = st.session_state.get("retrieval_pipeline", "Dense")
     dense_index_requested = selected_pipeline != "BM25"
     process = process_column.button(
-        "Index corpus",
+        "Prepare for search",
         type="primary",
         disabled=not uploads or (dense_index_requested and embedding_model_id is None),
         width="stretch",
     )
     has_corpus = isinstance(st.session_state.get("bm25_engine"), BM25SearchEngine)
-    clear = clear_column.button("Clear corpus", disabled=not has_corpus, width="stretch")
+    clear = clear_column.button("Remove documents", disabled=not has_corpus, width="stretch")
     if clear:
         st.session_state.pop("engine", None)
         st.session_state.pop("bm25_engine", None)
@@ -574,7 +602,7 @@ def _render_corpus_section(
 
     summary = st.session_state.get("corpus_summary")
     if summary:
-        st.success("Knowledge base ready")
+        st.success("Your documents are ready to search")
         metrics = st.columns(4)
         metrics[0].metric("Documents", summary.get("documents", summary["files"]))
         metrics[1].metric("Passages", summary["passages"])
@@ -588,7 +616,7 @@ def _render_corpus_section(
                 for warning in summary["warnings"]:
                     st.warning(warning)
     else:
-        st.caption("Index documents to unlock the search canvas.")
+        st.caption("Upload and prepare documents to start searching.")
 
 
 def _render_search_section(
@@ -601,16 +629,17 @@ def _render_search_section(
     st.markdown(
         """
         <div class="search-section-heading">
-            <h2>Search the corpus</h2>
-            <p>Choose how the evidence should be ranked.</p>
+            <h2>2. Search your documents</h2>
+            <p>Ask a question and choose how the most relevant passages are found.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('<p class="selector-label">Base retrieval</p>', unsafe_allow_html=True)
+    st.markdown('<p class="selector-label">Search method</p>', unsafe_allow_html=True)
     pipeline = st.radio(
-        "Base retrieval",
+        "Search method",
         list(PIPELINES),
+        format_func=lambda value: {"Dense": "AI Meaning (Dense)", "BM25": "Keywords (BM25)", "Hybrid": "Combined (Hybrid)"}[value],
         horizontal=True,
         key="retrieval_pipeline",
     )
@@ -626,11 +655,12 @@ def _render_search_section(
         f'<p class="pipeline-description">{PIPELINES[pipeline]}</p>',
         unsafe_allow_html=True,
     )
-    st.markdown('<p class="selector-label">Reranker</p>', unsafe_allow_html=True)
+    st.markdown('<p class="selector-label">Optional: refine the results with AI</p>', unsafe_allow_html=True)
     reranker_choice = st.radio(
-        "Reranker",
+        "Result refinement",
         (("Off", "Remote Adapter") if st.session_state.get("reranker_model_mode") == "Remote Adapter"
          else ("Off",) if st.session_state.get("reranker_model_mode") == "Off" else RERANKERS),
+        format_func=lambda value: "On (AI reranking)" if value == "Cross-Encoder" else value,
         horizontal=True,
         index=0,
         key="reranker",
@@ -650,7 +680,7 @@ def _render_search_section(
         reranker_choice != "Off" and reranker_model_id is None
     )
     query = st.chat_input(
-        "Ask the active corpus a precise question",
+        "Ask a question about your documents…",
         disabled=not query_ready,
         key="retrieval_query",
     )
@@ -662,11 +692,11 @@ def _render_search_section(
         elif embedding_error and pipeline in {"Dense", "Hybrid"}:
             st.caption("Choose a valid embedding model to use this pipeline.")
         else:
-            st.caption("Index documents above to begin.")
+            st.caption("Prepare your documents above to begin.")
     elif not query_ready:
         st.caption("Choose a valid reranker model, or select Off.")
     else:
-        st.caption("Press Enter or select the send control to retrieve passages.")
+        st.caption("Press Enter to find relevant passages. This tool finds sources rather than generating answers.")
 
     if query and query.strip():
         try:
@@ -759,8 +789,8 @@ def _render_evaluation_section(
             """
             <div class="evaluation-heading">
                 <div>
-                    <h2>Evaluate retrieval</h2>
-                    <p>Measure one pipeline or compare several against the same labeled queries.</p>
+                    <h2>3. Measure and compare search</h2>
+                    <p>See how well your search methods find relevant documents using labeled questions.</p>
                 </div>
                 <span>DOCUMENT LEVEL</span>
             </div>
@@ -768,8 +798,9 @@ def _render_evaluation_section(
             unsafe_allow_html=True,
         )
         mode = st.radio(
-            "Evaluation mode",
+            "How would you like to test?",
             ("Evaluate one pipeline", "Compare pipelines"),
+            format_func=lambda value: "Test one search method" if value == "Evaluate one pipeline" else "Compare search methods",
             horizontal=True,
             key="evaluation_mode",
         )
@@ -1088,21 +1119,249 @@ def _render_evaluation_section(
                 )
 
 
-def main() -> None:
-    """Render the complete local retrieval application."""
+def _load_stylesheet(name: str) -> None:
+    """Inject a trusted local stylesheet without adding a frontend runtime."""
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stylesheet = (PROJECT_ROOT / "assets" / name).read_text(encoding="utf-8")
+    st.html(f"<style>{stylesheet}</style>")
+
+
+def _render_author_footer() -> None:
+    """Display the shared author credit on both pages."""
+
+    photo_path = PROJECT_ROOT / "assets" / "towhid-aslam.jpg"
+
+    # Use the supplied photo when available; initials are the fallback.
+    if photo_path.is_file():
+        encoded = base64.b64encode(photo_path.read_bytes()).decode("ascii")
+        photo_html = (
+            f'<img class="author-footer-photo" '
+            f'src="data:image/jpeg;base64,{encoded}" '
+            f'alt="Towhid Aslam" width="48" height="48">'
+        )
+    else:
+        photo_html = '<span class="author-footer-avatar" aria-hidden="true">TA</span>'
+
+    st.html(
+        f"""
+        <footer class="author-footer">
+            <div class="author-footer-inner">
+                {photo_html}
+                <div class="author-footer-details">
+                    <span class="author-footer-name">
+                        Built by <strong>Towhid Aslam</strong>
+                    </span>
+                    <a href="https://github.com/rdaslam12"
+                       target="_blank"
+                       rel="noopener noreferrer">
+                        Go to GitHub ↗
+                    </a>
+                </div>
+            </div>
+        </footer>
+        """
     )
-    st.set_page_config(
-        page_title="RetrievalLab · Local retrieval workbench",
-        page_icon=":material/search_insights:",
-        layout="wide",
-        initial_sidebar_state="auto",
+
+
+
+def _go_to_workbench() -> None:
+    if WORKBENCH_PAGE is not None:
+        st.switch_page(WORKBENCH_PAGE)
+
+
+def _render_landing_halftone() -> None:
+    """Mount the landing-only canvas with JavaScript when Streamlit supports it."""
+
+    effect = (PROJECT_ROOT / "assets" / "landing_halftone.html").read_text(
+        encoding="utf-8"
     )
-    stylesheet = (PROJECT_ROOT / "assets" / "app.css").read_text(encoding="utf-8")
-    st.markdown(f"<style>{stylesheet}</style>", unsafe_allow_html=True)
+    if "unsafe_allow_javascript" in inspect.signature(st.html).parameters:
+        st.html(effect, unsafe_allow_javascript=True)
+    else:
+        # Streamlit < 1.52 renders the static canvas but safely ignores its script.
+        st.html(effect)
+
+
+def render_landing_page() -> None:
+    """Render the landing page with separate navigation and hero."""
+
+    _load_stylesheet("landing.css")
+
+    with st.container(key="landing_nav"):
+        with st.container(
+            key="landing_nav_inner",
+            horizontal=True,
+            horizontal_alignment="left",
+            vertical_alignment="center",
+            gap="xsmall",
+        ):
+            st.html(
+                """
+                <span class="landing-page-marker" aria-hidden="true"></span>
+                <div class="landing-brand">
+                    <svg class="landing-brand__mark"
+                         viewBox="0 0 40 40" aria-hidden="true">
+                        <rect x="3.5" y="3.5"
+                              width="33" height="33" rx="10"/>
+                        <circle cx="12" cy="13" r="2"/>
+                        <circle cx="12" cy="20" r="2"/>
+                        <circle cx="12" cy="27" r="2"/>
+                        <path d="M17 13h12M17 20h9M17 27h6"/>
+                    </svg>
+                    <strong>RetrievalLab</strong>
+                </div>
+                """,
+                width="content",
+            )
+            st.space("stretch")
+            st.page_link(
+                LANDING_PAGE,
+                label="Home",
+                icon=":material/home:",
+            )
+            st.page_link(
+                WORKBENCH_PAGE,
+                label="Workbench",
+                icon=":material/search:",
+            )
+
+    with st.container(key="landing_hero"):
+        _render_landing_halftone()
+
+        st.html(
+            """
+            <div class="landing-hero__body">
+                <p class="landing-eyebrow landing-enter landing-enter--eyebrow">
+                    <span aria-hidden="true"></span>
+                    DOCUMENT SEARCH, MADE VISIBLE
+                </p>
+
+                <div class="landing-headline-stage landing-enter landing-enter--headline">
+                    <h1 id="landing-title"
+                        aria-label="Upload your documents, find what matters, and compare search results">
+
+                        <span class="landing-headline landing-headline--one"
+                              aria-hidden="true">
+                            Upload your documents.<br>
+                            <em>Find what matters.</em>
+                        </span>
+
+                        <span class="landing-headline landing-headline--two"
+                              aria-hidden="true">
+                            Search smarter.<br>
+                            <em>Compare the results.</em>
+                        </span>
+
+                        <span class="landing-headline landing-headline--three"
+                              aria-hidden="true">
+                            Your documents.<br>
+                            <em>Your models. Your experiments.</em>
+                        </span>
+                    </h1>
+                </div>
+
+                <p class="landing-hero__description landing-enter landing-enter--description">
+                    Better RAG systems start with better retrieval.
+                    Testing and comparing retrieval models can be
+                    time-consuming, especially across different datasets
+                    and benchmarks. RetrievalLab is a modular inference
+                    and evaluation workbench where you can connect your
+                    own compatible retrievers and rerankers, compare
+                    their results, and measure performance.
+                    Experiment with AI-powered search and discover what
+                    happens behind the scenes.
+                </p>
+            </div>
+            """
+        )
+
+        if st.button(
+            "Explore RetrievalLab →",
+            type="primary",
+            key="landing_explore",
+        ):
+            _go_to_workbench()
+
+        st.html(
+            '<p class="landing-author-credit">'
+            'Built by <strong>Towhid Aslam</strong>'
+            '</p>'
+        )
+
+        st.html(
+            """
+            <div class="landing-scroll landing-enter landing-enter--scroll"
+                 aria-hidden="true">
+                <span>Scroll to see how it works</span>
+                <i></i>
+            </div>
+            """
+        )
+
+
+
+    with st.container(key="landing_how"):
+        st.markdown(
+            """
+            <header class="landing-section-heading landing-reveal">
+                <h2>How does RetrievalLab work?</h2>
+                <p>Finding the right information isn't always about matching the right words.
+                RetrievalLab lets you explore how different search methods find and rank information.</p>
+            </header>
+            <div class="landing-workflow" aria-label="RetrievalLab workflow">
+                <article class="landing-step landing-reveal landing-reveal--one">
+                    <span class="landing-step__number">01</span>
+                    <div><h3>Add your documents</h3>
+                    <p>Upload PDFs, Word documents, text files, or supported datasets.
+                    RetrievalLab prepares them for searching.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--two">
+                    <span class="landing-step__number">02</span>
+                    <div><h3>Search for anything</h3>
+                    <p>Enter a question or topic. Choose keyword search, AI-powered meaning
+                    search, or a combination of both.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--three">
+                    <span class="landing-step__number">03</span>
+                    <div><h3>Refine your results</h3>
+                    <p>Use an optional AI reranker to reorder the results and bring more
+                    relevant passages forward.</p></div>
+                </article>
+                <article class="landing-step landing-reveal landing-reveal--four">
+                    <span class="landing-step__number">04</span>
+                    <div><h3>Compare and evaluate</h3>
+                    <p>Inspect how different methods perform and use built-in evaluation tools
+                    to measure their effectiveness.</p></div>
+                </article>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with st.container(key="landing_cta"):
+        st.markdown(
+            """
+            <div class="landing-cta__copy landing-reveal">
+                <h2>See what your search is really doing.</h2>
+                <p>Bring a document, try a few approaches, and compare the evidence for yourself.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "Open the workbench →",
+            type="primary",
+            key="landing_final_cta",
+        ):
+            _go_to_workbench()
+
+    # Shared footer at the bottom of the landing page (not within the hero).
+    _render_author_footer()
+
+
+def render_workbench() -> None:
+    """Render the complete retrieval application as a dedicated page."""
+
     config = load_config()
     preferred_device = detect_preferred_device()
     (
@@ -1115,10 +1374,11 @@ def main() -> None:
     _sidebar(config, preferred_device, embedding_model_id, reranker_model_id)
     st.markdown(
         """
-        <section class="search-hero">
-            <h1>What should we discover?</h1>
-            <p>A modular workbench for comparing dense, lexical, and hybrid retrieval pipelines.</p>
-        </section>
+        <header class="search-hero">
+            <h1>Search, compare, and evaluate.</h1>
+            <p>Build a document search workspace, inspect ranked passages, and measure how
+            different retrieval methods perform.</p>
+        </header>
         """,
         unsafe_allow_html=True,
     )
@@ -1144,6 +1404,39 @@ def main() -> None:
         reranker_error=reranker_error,
     )
     render_about_method()
+    _render_author_footer()
+
+
+def main() -> None:
+    """Configure the hidden multipage router and run the selected page."""
+
+    global LANDING_PAGE, WORKBENCH_PAGE
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    st.set_page_config(
+        page_title="RetrievalLab",
+        page_icon=":material/search_insights:",
+        layout="wide",
+        initial_sidebar_state="auto",
+    )
+    _load_stylesheet("app.css")
+    LANDING_PAGE = st.Page(
+        render_landing_page,
+        title="RetrievalLab",
+        icon=":material/home:",
+        url_path="home",
+        default=True,
+    )
+    WORKBENCH_PAGE = st.Page(
+        render_workbench,
+        title="Workbench",
+        icon=":material/search_insights:",
+        url_path="workbench",
+    )
+    st.navigation([LANDING_PAGE, WORKBENCH_PAGE], position="hidden").run()
 
 
 if __name__ == "__main__":

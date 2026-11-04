@@ -7,6 +7,19 @@ from src.reranker import DEFAULT_RERANKER_MODEL
 APP_TEST_TIMEOUT_SECONDS = 30
 
 
+
+def test_intro_hero_explains_rag_and_links_to_workbench() -> None:
+    app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
+
+    assert not app.exception
+    markup = "\n".join(item.value for item in app.markdown)
+    assert 'class="intro-hero"' in markup
+    assert 'intro-hero__frame--one' in markup
+    assert 'intro-hero__frame--two' in markup
+    assert 'intro-hero__frame--three' in markup
+    assert 'Retrieval-Augmented Generation (RAG)' in markup
+    assert 'href="#retrieval-workbench"' in markup
+
 def test_app_starts_with_default_models_and_conditional_custom_fields() -> None:
     app = AppTest.from_file("app.py", default_timeout=APP_TEST_TIMEOUT_SECONDS).run()
 
@@ -39,7 +52,7 @@ def test_evaluation_workspace_starts_separate_and_disabled_without_a_corpus() ->
     assert app.file_uploader("evaluation_queries").label == "Query JSONL"
     assert app.file_uploader("evaluation_qrels").label == "Qrels TSV"
     assert app.button("run_evaluation").disabled
-    assert any("Evaluate retrieval" in item.value for item in app.markdown)
+    assert any("3. Measure and compare search" in item.value for item in app.markdown)
 
 
 def test_benchmark_mode_has_default_pipelines_and_requires_indexes() -> None:
@@ -116,7 +129,7 @@ def test_remote_benchmark_preserves_interactive_search_and_dense_index(monkeypat
     app.file_uploader('corpus_upload_0').set_value(('corpus.jsonl',
         b'{"_id":"d1","text":"passage dense"}\n{"_id":"d2","text":"passage lexical"}\n',
         'application/jsonl')).run()
-    next(button for button in app.button if button.label == 'Index corpus').click().run()
+    next(button for button in app.button if button.label == 'Prepare for search').click().run()
     assert not app.exception
     engine = app.session_state['engine']
     index = engine.vector_index
